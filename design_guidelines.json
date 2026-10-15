@@ -1,0 +1,141 @@
+{
+  "theme": "Dark",
+  "archetype": "Archetype 5 (Jewel & Luxury - Dark) - Modified for Raw Intimacy & Emotional Weight",
+  "design_philosophy": "This is not a 'wellness app'. It is a sanctuary. No pastel gradients, no cheerful blobs, no gamification. The app must feel like a quiet, protected room at 2am. It embraces isolation to provide comfort. We rely on pure black void spaces, elegant melancholic typography, and excruciatingly slow, deliberate motion to ground the user.",
+  "colors": {
+    "backgrounds": {
+      "app_bg": "#030303",
+      "surface": "#0A0A0A",
+      "surface_elevated": "#121212",
+      "glass": "rgba(10, 10, 10, 0.65)",
+      "scrim": "rgba(3, 3, 3, 0.85)"
+    },
+    "text": {
+      "primary": "#F4F4F5",
+      "secondary": "#A1A1AA",
+      "muted": "#52525B",
+      "inverse": "#030303"
+    },
+    "borders": {
+      "subtle": "rgba(255, 255, 255, 0.08)",
+      "focus": "rgba(255, 255, 255, 0.25)"
+    },
+    "accents": {
+      "primary": "#E4E4E7",
+      "danger": "#5C2B29"
+    },
+    "mood_badges": {
+      "angry": {"bg": "#2B1615", "text": "#E8908A", "border": "#4A2422"},
+      "sad": {"bg": "#141829", "text": "#8A9AE8", "border": "#242A4A"},
+      "anxious": {"bg": "#292418", "text": "#E8CC8A", "border": "#4A402A"},
+      "hopeful": {"bg": "#1A241F", "text": "#91C7A9", "border": "#2D4238"},
+      "neutral": {"bg": "#18181B", "text": "#A1A1AA", "border": "#27272A"}
+    }
+  },
+  "typography": {
+    "fonts": {
+      "headings": "Cormorant Garamond, serif",
+      "body": "IBM Plex Sans, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "scales": {
+      "h1": "text-4xl md:text-5xl font-light tracking-tight leading-none",
+      "h2": "text-2xl md:text-3xl font-light tracking-tight",
+      "h3": "text-xl md:text-2xl font-normal text-secondary",
+      "body_large": "text-lg font-light leading-relaxed",
+      "body": "text-base font-normal leading-relaxed text-secondary",
+      "small": "text-xs font-mono tracking-widest uppercase text-muted"
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous Spacing. Use 2-3x more padding than usual to create physical distance around elements, reinforcing the 'Empty Room' metaphor.",
+    "container": "max-w-md mx-auto h-screen flex flex-col relative",
+    "paddings": {
+      "screen": "p-6 md:p-10",
+      "section": "py-12 md:py-20",
+      "element": "p-4"
+    }
+  },
+  "motion": {
+    "philosophy": "Breathing cadence. Transitions should feel like slow inhales and exhales.",
+    "timings": {
+      "fast": "duration-300",
+      "base": "duration-700",
+      "slow": "duration-1000",
+      "very_slow": "duration-3000"
+    },
+    "easing": "ease-[cubic-bezier(0.25,0.1,0.25,1)]",
+    "animations": {
+      "fade_in_up": "animate-in fade-in slide-in-from-bottom-4 duration-1000",
+      "dissolve": "transition-all duration-3000 opacity-0 translate-y-[-20px] blur-sm"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-inverse px-8 py-4 rounded-none font-mono text-xs tracking-widest uppercase hover:bg-white transition-colors duration-300",
+      "ghost": "text-secondary hover:text-primary px-4 py-2 text-sm transition-colors duration-500",
+      "icon": "p-4 rounded-full border border-subtle hover:border-focus transition-all duration-500 flex items-center justify-center text-primary"
+    },
+    "inputs": {
+      "void_text": "bg-transparent border-none text-2xl font-headings text-center w-full focus:ring-0 text-primary placeholder:text-muted resize-none leading-relaxed"
+    },
+    "screens": {
+      "SplashScreen": {
+        "layout": "Flex-col, centered, absolute black background with subtle noise texture overlay.",
+        "details": "A single mono-spaced text 'NoOneListening.' slowly fades in. A primary button 'ENTER THE ROOM' beneath it. On click, generates a random ID (e.g., 'ID: 48F2-9A') in mono text before transitioning."
+      },
+      "HomeScreen": {
+        "layout": "Bento-style split screen or two massive typographic blocks taking 50vh each.",
+        "details": "Top half: 'Empty Room' (Just me, venting into the void). Bottom half: 'Echo' (I want someone to listen). Hovering/Pressing expands the section and fades the other."
+      },
+      "EmptyRoomScreen": {
+        "layout": "Extremely minimal. Just a recording indicator at bottom, a large invisible text area in the middle.",
+        "details": "Audio: Pulsing 1px thin soundwave in the center. Text: When user types and hits enter, the text block floats up and slowly dissolves (opacity 0, blur) into the background over 4 seconds (cathartic release)."
+      },
+      "AIChatScreen": {
+        "layout": "Not a standard chat UI. No chat bubbles.",
+        "details": "User messages are right-aligned, muted, mono-spaced. AI responses are left-aligned, large serif text (Cormorant Garamond). Mood Badges are tiny pills (e.g., [ ↳ Melancholic ]) placed subtly above the AI's response paragraph using the mood_badges color palette."
+      },
+      "FarewellScreen": {
+        "layout": "Centered emotive text on a dark textured background.",
+        "details": "Text: 'You survived today. Tomorrow is another.' Toggle for 'Remind me tomorrow' uses a custom thin minimalist switch. A ghost button 'Leave' to exit."
+      },
+      "ExitModal": {
+        "layout": "Full screen heavy backdrop blur (backdrop-blur-2xl bg-black/80).",
+        "details": "Triggered when hitting the 'Close' icon. Large serif text: 'Are you feeling better?' Options: 'Yes, I am' / 'Not yet, I need to stay'. Completely removes the user from the outside world."
+      }
+    }
+  },
+  "media": {
+    "images": [
+      {
+        "url": "https://images.unsplash.com/photo-1770795263316-f302a878ee64?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwxfHxkYXJrJTIwbWluaW1hbGlzdCUyMHRleHR1cmV8ZW58MHx8fHwxNzc2NjI1NDE4fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Subtle dark texture with slight lighting, used for the Splash Screen and Farewell Screen backgrounds with low opacity.",
+        "category": "background_texture"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1757463458782-19a9a63e2eff?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHwyfHxkYXJrJTIwY2luZW1hdGljJTIwZm9nfGVufDB8fHx8MTc3NjYyNTQxOHww&ixlib=rb-4.1.0&q=85",
+        "description": "Dark cinematic architecture with mist, used for the Empty Room background at 10% opacity to create spatial depth without distraction.",
+        "category": "empty_room_bg"
+      },
+      {
+        "url": "https://images.pexels.com/photos/7641148/pexels-photo-7641148.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Intricate dark fabric texture, providing warmth and safety to the AI Chat screen.",
+        "category": "chat_bg"
+      }
+    ],
+    "soundwave_instructions": "Do not use chunky bars for the mic visualizer. Use SVG or Canvas to draw 3-5 thin (1px) curved lines that expand vertically based on an active state. They should look like a delicate heartbeat or a thread caught in the wind."
+  },
+  "testing": {
+    "requirements": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case."
+  },
+  "instructions_to_main_agent": [
+    "Strictly adhere to the dark, muted color palette. Do not inject bright or standard 'Tailwind blue' default colors anywhere.",
+    "Ensure headings use Cormorant Garamond and body uses IBM Plex Sans. Include Google Fonts links in the index.html or layout wrapper.",
+    "Implement the 'dissolving text' in Empty Room carefully. It requires tracking an array of typed messages and setting a timeout to add a 'dissolve' CSS class that triggers the slow opacity-0 blur.",
+    "Use Shadcn UI sparingly; heavily override any card or button components to remove radii, thick borders, or standard dropshadows. Rely on 1px borders and pure flat surfaces.",
+    "The app must be responsive but optimized for mobile view (max-w-md mx-auto) as per the requirement 'mobile app... web preview'.",
+    "Implement the mood badges strictly using the colors defined in the JSON. They should look like tiny technical logs alongside the humanistic serif AI text.",
+    "Never use generic placeholder images. Use the provided Unsplash/Pexels URLs."
+  ]
+}

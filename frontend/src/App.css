@@ -1,0 +1,6 @@
+.App {
+  min-height: 100vh;
+  background: var(--nol-bg);
+  color: var(--nol-text);
+  position: relative;
+}
