@@ -13,6 +13,7 @@ import logging
 import os
 import random
 import string
+import time
 import uuid
 import wave
 from datetime import datetime, timezone
@@ -90,13 +91,56 @@ OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "tts-1")
 # ElevenLabs (primary voice): native-sounding, multilingual
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 ELEVENLABS_MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_flash_v2_5")
+# Languages the fast model can't speak (Telugu, Bengali, Marathi, Gujarati, Urdu...)
+ELEVENLABS_WIDE_MODEL = os.environ.get("ELEVENLABS_WIDE_MODEL", "eleven_v4_turbo")
+FLASH_LANGS = {
+    "ar", "bg", "cs", "da", "de", "el", "en", "es", "fi", "fil", "fr", "hi", "hr", "hu",
+    "id", "it", "ja", "ko", "ms", "nl", "no", "pl", "pt", "ro", "ru", "sk", "sv", "ta",
+    "tr", "uk", "vi", "zh",
+}
 # Built-in voices (work on every plan): soft & warm woman, warm comforting man
 EL_DEFAULT_VOICES = {"female": "EXAVITQu4vr4xnSDxMaL", "male": "nPczCjzI2devNBz1zQrb"}
 # Native voices per language (Voice Library, need a paid ElevenLabs plan).
 # Add more via env, e.g. EL_VOICE_TA_FEMALE=<voice_id>
 EL_NATIVE_VOICES = {
-    ("hi", "female"): "JS6C6yu2x9Byh4i1a8lX",
-    ("hi", "male"): "3AMU7jXQuQa3oRvRqUmb",
+    ("hi", "female"): "JS6C6yu2x9Byh4i1a8lX",  # Meher
+    ("hi", "male"): "3AMU7jXQuQa3oRvRqUmb",  # Viraj
+    ("ta", "female"): "mGboHvCVOXWYeFL8KTR0",  # Yazhini - friendly, warm
+    ("ta", "male"): "pTM0m0egrCpo5i9b1gpo",  # Maneesh - soothing, gentle
+    ("te", "female"): "4XvBGCPMXWyVQa75dbZg",  # Madhavi - soft, natural
+    ("te", "male"): "VFbICGvBSvKmHwlI9rzA",  # Jayesh M - warm, calm
+}
+NATIVE_RETRY_SECONDS = 3600  # re-check paid-plan access every hour
+
+# Short gentle samples for the voice preview: str, or (female, male) when
+# the language changes words by gender.
+PREVIEW_TEXTS = {
+    "auto": "Hi. I'm here, and I'm listening. Take your time.",
+    "en": "Hi. I'm here, and I'm listening. Take your time.",
+    "hinglish": (
+        "Hi, main yahin hoon. Aaram se bolo, main sun rahi hoon.",
+        "Hi, main yahin hoon. Aaram se bolo, main sun raha hoon.",
+    ),
+    "hi": (
+        "नमस्ते। मैं यहीं हूँ, आपकी बात सुन रही हूँ। आराम से बोलिए।",
+        "नमस्ते। मैं यहीं हूँ, आपकी बात सुन रहा हूँ। आराम से बोलिए।",
+    ),
+    "ta": "வணக்கம். நான் இங்கே இருக்கிறேன், நீங்கள் சொல்வதைக் கேட்கிறேன்.",
+    "te": "నమస్తే. నేను ఇక్కడే ఉన్నాను, మీ మాట వింటున్నాను.",
+    "bn": "নমস্কার। আমি এখানেই আছি, তোমার কথা শুনছি।",
+    "mr": ("नमस्कार. मी इथेच आहे, मी ऐकते आहे.", "नमस्कार. मी इथेच आहे, मी ऐकतो आहे."),
+    "gu": "નમસ્તે. હું અહીં જ છું, તમારી વાત સાંભળું છું.",
+    "ur": ("سلام۔ میں یہیں ہوں، آپ کی بات سن رہی ہوں۔", "سلام۔ میں یہیں ہوں، آپ کی بات سن رہا ہوں۔"),
+    "es": "Hola. Estoy aquí, te escucho. Tómate tu tiempo.",
+    "fr": "Bonjour. Je suis là, je t'écoute. Prends ton temps.",
+    "de": "Hallo. Ich bin da und höre dir zu. Nimm dir Zeit.",
+    "pt": "Olá. Estou aqui, te ouvindo. Sem pressa.",
+    "it": "Ciao. Sono qui, ti ascolto. Prenditi il tuo tempo.",
+    "ar": "مرحبا. أنا هنا، وأستمع إليك. خذ وقتك.",
+    "ru": "Привет. Я здесь, я тебя слушаю. Не торопись.",
+    "ja": "こんにちは。ここにいますよ。ゆっくり話してね。",
+    "ko": "안녕하세요. 저 여기 있어요. 천천히 말해 주세요.",
+    "zh": "你好。我在这里，我在听。慢慢说。",
 }
 
 # How Echo should *sound*, based on the user's mood.
@@ -144,6 +188,7 @@ class ChatIn(BaseModel):
     session_id: str
     message: str
     voice_mode: bool = False  # True when the user is talking out loud
+    voice: Optional[Literal["female", "male"]] = None  # Echo's voice gender
     language: Optional[str] = None  # e.g. "Hindi", "Hinglish", "auto"
 
 
@@ -284,6 +329,16 @@ def _language_instruction(language: Optional[str]) -> str:
     )
 
 
+def _gender_instruction(voice: Optional[str]) -> str:
+    if voice not in ("female", "male"):
+        return ""
+    who = "a woman" if voice == "female" else "a man"
+    return (
+        f"\n\nYou are heard in {who}'s voice. In languages with grammatical "
+        f"gender (Hindi, Urdu, Marathi, Arabic, Spanish...), speak about yourself as {who}."
+    )
+
+
 async def _classify_mood(text: str) -> str:
     """Lightweight one-shot mood classification with Claude."""
     if not text or not text.strip():
@@ -366,7 +421,7 @@ def _synthesize_sync(text: str, voice: str, mood: str) -> bytes:
 
 
 _el_client = None
-_el_native_blocked = False  # set when the plan can't use library voices
+_el_native_blocked_until = 0.0  # set when the plan can't use library voices
 
 
 def _native_voice(lang: Optional[str], voice: str) -> Optional[str]:
@@ -376,8 +431,15 @@ def _native_voice(lang: Optional[str], voice: str) -> Optional[str]:
     return env or EL_NATIVE_VOICES.get((lang, voice))
 
 
-async def _elevenlabs_tts(text: str, voice: str, lang: Optional[str]) -> bytes:
-    global _el_client, _el_native_blocked
+def _active_native(lang: Optional[str], voice: str) -> Optional[str]:
+    if time.time() < _el_native_blocked_until:
+        return None
+    return _native_voice(lang, voice)
+
+
+async def _elevenlabs_tts(text: str, voice: str, lang: Optional[str]) -> tuple:
+    """Returns (mp3 bytes, voice_id used)."""
+    global _el_client, _el_native_blocked_until
     from elevenlabs import VoiceSettings
     from elevenlabs.client import AsyncElevenLabs
 
@@ -392,22 +454,48 @@ async def _elevenlabs_tts(text: str, voice: str, lang: Optional[str]) -> bytes:
         chunks = _el_client.text_to_speech.convert(
             voice_id,
             text=text,
-            model_id=ELEVENLABS_MODEL,
+            model_id=ELEVENLABS_MODEL if not lang or lang in FLASH_LANGS else ELEVENLABS_WIDE_MODEL,
             output_format="mp3_44100_64",
             voice_settings=settings,
             **extra,
         )
         return b"".join([c async for c in chunks])
 
-    native = None if _el_native_blocked else _native_voice(lang, voice)
+    native = _active_native(lang, voice)
     if native:
         try:
-            return await run(native)
+            return await run(native), native
         except Exception as exc:  # noqa: BLE001
             if "402" in str(exc) or "payment" in str(exc).lower():
-                _el_native_blocked = True
-            logger.info("native voice unavailable, using built-in: %s", str(exc)[:120])
-    return await run(EL_DEFAULT_VOICES[voice])
+                _el_native_blocked_until = time.time() + NATIVE_RETRY_SECONDS
+            logger.info("native voice unavailable, using built-in: %s", str(exc)[:160])
+    default = EL_DEFAULT_VOICES[voice]
+    return await run(default), default
+
+
+async def _speak_any(text: str, voice: str, mood: str, lang: Optional[str]) -> tuple:
+    """ElevenLabs -> OpenAI -> Gemini. Returns (audio, media_type, voice_tag)."""
+    if ELEVENLABS_API_KEY:
+        try:
+            audio, vid = await _elevenlabs_tts(text, voice, lang)
+            return audio, "audio/mpeg", f"el:{vid}"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("elevenlabs tts failed, trying openai: %s", exc)
+    if EMERGENT_LLM_KEY:
+        try:
+            from emergentintegrations.llm.openai import OpenAITextToSpeech
+
+            tts = OpenAITextToSpeech(api_key=EMERGENT_LLM_KEY)
+            mp3 = await tts.generate_speech(
+                text=text, model=OPENAI_TTS_MODEL, voice=OPENAI_VOICES[voice], speed=0.95
+            )
+            return mp3, "audio/mpeg", f"openai:{OPENAI_VOICES[voice]}"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("openai tts failed, trying gemini: %s", exc)
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=502, detail="voice unavailable")
+    wav = await asyncio.to_thread(_synthesize_sync, text, voice, mood)
+    return wav, "audio/wav", f"gemini:{VOICE_NAMES[voice]}"
 
 
 # --- Routes -----------------------------------------------------------------
@@ -471,6 +559,7 @@ async def echo_chat(payload: ChatIn):
         ECHO_SYSTEM_PROMPT
         + (VOICE_ADDENDUM if payload.voice_mode else "")
         + _language_instruction(payload.language)
+        + _gender_instruction(payload.voice)
     )
     try:
         # mood and reply at the same time = faster
@@ -517,33 +606,32 @@ async def voice_speak(payload: SpeakIn):
     if not text:
         raise HTTPException(status_code=400, detail="Empty text")
     mood = payload.mood if payload.mood in VALID_MOODS else "neutral"
-    if ELEVENLABS_API_KEY:
-        try:
-            return Response(
-                content=await _elevenlabs_tts(text, payload.voice, payload.lang),
-                media_type="audio/mpeg",
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("elevenlabs tts failed, trying openai: %s", exc)
-    if EMERGENT_LLM_KEY:
-        try:
-            from emergentintegrations.llm.openai import OpenAITextToSpeech
+    audio, media, _ = await _speak_any(text, payload.voice, mood, payload.lang)
+    return Response(content=audio, media_type=media)
 
-            tts = OpenAITextToSpeech(api_key=EMERGENT_LLM_KEY)
-            mp3 = await tts.generate_speech(
-                text=text,
-                model=OPENAI_TTS_MODEL,
-                voice=OPENAI_VOICES[payload.voice],
-                speed=0.95,
-            )
-            return Response(content=mp3, media_type="audio/mpeg")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("openai tts failed, trying gemini: %s", exc)
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=502, detail="voice unavailable")
-    # requests is blocking, so run it off the main loop
-    wav = await asyncio.to_thread(_synthesize_sync, text, payload.voice, mood)
-    return Response(content=wav, media_type="audio/wav")
+
+@api_router.get("/voice/preview")
+async def voice_preview(voice: Literal["female", "male"] = "female", sample: str = "auto"):
+    """A short sample of a voice in a language. Cached so it costs credits once."""
+    text = PREVIEW_TEXTS.get(sample, PREVIEW_TEXTS["en"])
+    if isinstance(text, tuple):
+        text = text[0] if voice == "female" else text[1]
+    lang = "hi" if sample == "hinglish" else (None if sample == "auto" else sample)
+    candidates = []
+    if ELEVENLABS_API_KEY:
+        native = _active_native(lang, voice)
+        candidates = ([f"el:{native}"] if native else []) + [f"el:{EL_DEFAULT_VOICES[voice]}"]
+    for tag in candidates:
+        hit = await db.voice_previews.find_one({"key": f"{sample}:{tag}"}, {"_id": 0})
+        if hit:
+            return Response(content=hit["audio"], media_type=hit["media"])
+    audio, media, tag = await _speak_any(text, voice, "neutral", lang)
+    await db.voice_previews.update_one(
+        {"key": f"{sample}:{tag}"},
+        {"$set": {"audio": audio, "media": media, "created_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return Response(content=audio, media_type=media)
 
 
 @api_router.delete("/session/{session_id}")

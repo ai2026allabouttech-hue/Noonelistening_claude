@@ -11,6 +11,7 @@ import {
 } from "@/services/echoService";
 import { LANGUAGES, LANG_KEY, defaultLanguage, findLang } from "@/lib/languages";
 import useUtteranceRecorder from "@/hooks/useUtteranceRecorder";
+import VoicePreviewButton from "@/components/VoicePreviewButton";
 
 // Mic recording (speech is understood by Whisper on the server).
 const SpeechRec =
@@ -88,27 +89,6 @@ function Chooser({ voice, pickVoice, lang, pickLang, begin }) {
         <span className="text-secondary">I'll listen.</span>
       </h1>
 
-      <div className="flex flex-wrap justify-center gap-4 mb-8">
-        {[
-          { id: "female", label: "a woman's voice" },
-          { id: "male", label: "a man's voice" },
-        ].map((opt) => (
-          <button
-            key={opt.id}
-            data-testid={`voice-pick-${opt.id}`}
-            onClick={() => pickVoice(opt.id)}
-            aria-pressed={voice === opt.id}
-            className={`px-6 py-4 ${label} border transition-colors duration-500 ${
-              voice === opt.id
-                ? "border-primary text-primary bg-white/5"
-                : "border-border-subtle text-secondary hover:text-primary"
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-
       <label className={`${label} text-secondary mb-3`} htmlFor="voice-lang">
         i'll speak in
       </label>
@@ -117,7 +97,7 @@ function Chooser({ voice, pickVoice, lang, pickLang, begin }) {
         data-testid="voice-language-select"
         value={lang}
         onChange={(e) => pickLang(e.target.value)}
-        className="mb-10 bg-transparent border border-border-subtle text-primary font-mono text-[12px] tracking-wide px-5 py-3 outline-none focus:border-primary"
+        className="mb-8 bg-transparent border border-border-subtle text-primary font-mono text-[12px] tracking-wide px-5 py-3 outline-none focus:border-primary"
       >
         {LANGUAGES.map((l) => (
           <option key={l.code} value={l.code} className="bg-black">
@@ -125,6 +105,29 @@ function Chooser({ voice, pickVoice, lang, pickLang, begin }) {
           </option>
         ))}
       </select>
+
+      <div className="flex flex-wrap justify-center gap-4 mb-10">
+        {[
+          { id: "female", label: "a woman's voice" },
+          { id: "male", label: "a man's voice" },
+        ].map((opt) => (
+          <div key={opt.id} className="flex flex-col items-center gap-2">
+            <button
+              data-testid={`voice-pick-${opt.id}`}
+              onClick={() => pickVoice(opt.id)}
+              aria-pressed={voice === opt.id}
+              className={`px-6 py-4 ${label} border transition-colors duration-500 ${
+                voice === opt.id
+                  ? "border-primary text-primary bg-white/5"
+                  : "border-border-subtle text-secondary hover:text-primary"
+              }`}
+            >
+              {opt.label}
+            </button>
+            <VoicePreviewButton voice={opt.id} sample={findLang(lang).stt} label={opt.label} />
+          </div>
+        ))}
+      </div>
 
       <button
         data-testid="voice-begin-btn"
@@ -235,7 +238,13 @@ export default function VoiceChatScreen() {
     setTurns((t) => [...t, { id: `u-${Date.now()}`, role: "user", text }]);
     const L = findLang(langRef.current);
     try {
-      const { reply, mood } = await sendEchoMessage(identity.sessionId, text, true, L.name);
+      const { reply, mood } = await sendEchoMessage(
+        identity.sessionId,
+        text,
+        true,
+        L.name,
+        voiceRef.current
+      );
       if (!activeRef.current) return;
       setTurns((t) => [...t, { id: `e-${Date.now()}`, role: "echo", text: reply }]);
       await speak(reply, mood, L.tts);

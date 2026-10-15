@@ -8,12 +8,13 @@ export async function createSession() {
   return data; // { session_id, code, created_at }
 }
 
-export async function sendEchoMessage(sessionId, message, voiceMode = false, language = null) {
+export async function sendEchoMessage(sessionId, message, voiceMode = false, language = null, voice = null) {
   const { data } = await axios.post(`${API}/echo/chat`, {
     session_id: sessionId,
     message,
     voice_mode: voiceMode,
     language,
+    voice,
   });
   return data; // { reply, mood }
 }
@@ -51,6 +52,9 @@ export async function fetchSpeech(text, voice, mood, lang = null) {
   );
   return data;
 }
+
+export const previewUrl = (voice, sample) =>
+  `${API}/voice/preview?voice=${voice}&sample=${encodeURIComponent(sample)}`;
 
 export async function transcribeSpeech(blob, lang) {
   const form = new FormData();
