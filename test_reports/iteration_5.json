@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 5 retest of the iteration 4 fixes. Backend 7/7 pass (pytest_iter5.xml). (1) Hinglish STT: the ElevenLabs hi mp3 of 'Main yahan hoon yaar, tension mat lo.' sent back with lang=hinglish now returns Roman text 'Main yaha hoon yaar, tension mat lo.' with no Devanagari. lang=hi still returns Devanagari, as expected. (2) /voice/speak returns 200 audio/mpeg for female hi, male ta and male null lang. The backend logs show no 'elevenlabs tts failed' warning, so ElevenLabs served every call. The native hi voice still gets 402 and falls back to the built-in voice, which is graceful. (3) A transcribe upload over 10MB returns 413 with detail, and a tiny file returns empty text. Frontend /echo with a fake mic set to gain 0 (fully silent): tapping the orb while listening fired a real POST /api/voice/transcribe (200, text ''), then the app went back to listening, so the manual-tap fix works. Both hint texts are visible and now use text-secondary. Full loop with intercepted transcribe works on desktop 1920 and mobile 390: transcribe (lang=hinglish in the form data) -> chat -> speak 200 -> user and echo turns render in Roman Hinglish. Interrupt, pause and end (-> /home) work, and there is no horizontal overflow on mobile.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter5_hinglish_stt.py", "/app/test_reports/pytest/pytest_iter5.xml"],
+  "action_items": [
+    "Optional UX: if the user taps the orb and transcribe returns empty text (silence), the app quietly goes back to listening. Consider a short notice such as 'I didn't catch anything, try again'."
+  ],
+  "critical_code_review_comments": [
+    "The 413 check runs only after await audio.read(), so the whole upload is held in memory first. That is acceptable for an MVP, but a Content-Length pre-check would be cheaper.",
+    "_el_native_blocked is still kept per process, so each backend restart spends one 402 call on the native hi voice (graceful)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter5_hinglish_stt.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None; test sessions were deleted",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use the iteration 4 approach: an add_init_script getUserMedia override with an OscillatorNode stream (gain 0 works because a manual tap always sends now), set localStorage nol_identity_v1 {sessionId, code} after POST /api/session, and use page.route on **/api/voice/transcribe to return fixed text. Keep ElevenLabs calls to 3-4 short texts per run (free plan)."
+}

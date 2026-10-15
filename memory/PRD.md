@@ -18,6 +18,12 @@ React (CRA/craco) frontend + FastAPI backend + local MongoDB. Echo chat via Clau
 - Echo is voice-only (typed chat removed; /voice -> /echo); live transcript shown
 - Multilingual: 18 languages picker; speech recognition lang + Echo replies in chosen language
 - Testing: backend 42/42, frontend 100%
+## Done (iteration 4-5)
+- Voice: ElevenLabs eleven_flash_v2_5 primary (female Sarah EXAVITQu4vr4xnSDxMaL soft/warm, male Brian nPczCjzI2devNBz1zQrb), language_code passed; native Hindi library voices (Meher/Viraj) auto-used if plan upgraded (402 on free -> fallback). OpenAI TTS then Gemini as fallbacks
+- Listening: MediaRecorder + silence detection -> /api/voice/transcribe (Whisper, Emergent key); Hinglish = language en + Roman prompt; tap orb to send
+- Languages: Any (auto), Hinglish + 18 languages; Echo replies in same language/mix
+- Speed: mood + reply in parallel
+- Testing: iterations 4-5 100%
 ## Backlog
 - P1: auto-delete abandoned sessions (Mongo TTL index)
 - P2: raise contrast of 10px muted labels; validate session_id; run mood + reply in parallel
