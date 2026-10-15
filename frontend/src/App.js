@@ -4,7 +4,6 @@ import "@/App.css";
 import SplashScreen from "@/screens/SplashScreen";
 import HomeScreen from "@/screens/HomeScreen";
 import EmptyRoomScreen from "@/screens/EmptyRoomScreen";
-import AIChatScreen from "@/screens/AIChatScreen";
 import VoiceChatScreen from "@/screens/VoiceChatScreen";
 import FarewellScreen from "@/screens/FarewellScreen";
 
@@ -64,18 +63,11 @@ export default function App() {
             path="/echo"
             element={
               <RequireIdentity>
-                <AIChatScreen />
-              </RequireIdentity>
-            }
-          />
-          <Route
-            path="/voice"
-            element={
-              <RequireIdentity>
                 <VoiceChatScreen />
               </RequireIdentity>
             }
           />
+          <Route path="/voice" element={<Navigate to="/echo" replace />} />
           <Route
             path="/farewell"
             element={

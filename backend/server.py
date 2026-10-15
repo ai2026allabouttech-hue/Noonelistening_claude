@@ -83,6 +83,9 @@ GEMINI_TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-prev
 
 # Gemini voice names. Swap these to try other voices in AI Studio.
 VOICE_NAMES = {"female": "Sulafat", "male": "Achird"}
+# OpenAI voices (primary, via Emergent key). Multilingual.
+OPENAI_VOICES = {"female": "coral", "male": "onyx"}
+OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "tts-1")
 
 # How Echo should *sound*, based on the user's mood.
 MOOD_DELIVERY = {
@@ -129,6 +132,7 @@ class ChatIn(BaseModel):
     session_id: str
     message: str
     voice_mode: bool = False  # True when the user is talking out loud
+    language: Optional[str] = None  # e.g. "Hindi"; Echo replies in this language
 
 
 class ChatOut(BaseModel):
@@ -405,7 +409,14 @@ async def echo_chat(payload: ChatIn):
 
     try:
         response_text = await _ask_llm(
-            ECHO_SYSTEM_PROMPT + (VOICE_ADDENDUM if payload.voice_mode else ""),
+            ECHO_SYSTEM_PROMPT
+            + (VOICE_ADDENDUM if payload.voice_mode else "")
+            + (
+                f"\n\nThe person speaks {payload.language}. Always reply only in "
+                f"{payload.language}, in natural everyday {payload.language}."
+                if payload.language
+                else ""
+            ),
             _build_messages(history, user_text),
             max_tokens=600,
         )
@@ -433,12 +444,26 @@ async def echo_chat(payload: ChatIn):
 @api_router.post("/voice/speak")
 async def voice_speak(payload: SpeakIn):
     """Turn Echo's reply into a human-sounding voice (WAV audio)."""
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="voice key not configured")
     text = (payload.text or "").strip()[:900]
     if not text:
         raise HTTPException(status_code=400, detail="Empty text")
     mood = payload.mood if payload.mood in VALID_MOODS else "neutral"
+    if EMERGENT_LLM_KEY:
+        try:
+            from emergentintegrations.llm.openai import OpenAITextToSpeech
+
+            tts = OpenAITextToSpeech(api_key=EMERGENT_LLM_KEY)
+            mp3 = await tts.generate_speech(
+                text=text,
+                model=OPENAI_TTS_MODEL,
+                voice=OPENAI_VOICES[payload.voice],
+                speed=0.95,
+            )
+            return Response(content=mp3, media_type="audio/mpeg")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("openai tts failed, trying gemini: %s", exc)
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=502, detail="voice unavailable")
     # requests is blocking, so run it off the main loop
     wav = await asyncio.to_thread(_synthesize_sync, text, payload.voice, mood)
     return Response(content=wav, media_type="audio/wav")

@@ -8,11 +8,12 @@ export async function createSession() {
   return data; // { session_id, code, created_at }
 }
 
-export async function sendEchoMessage(sessionId, message, voiceMode = false) {
+export async function sendEchoMessage(sessionId, message, voiceMode = false, language = null) {
   const { data } = await axios.post(`${API}/echo/chat`, {
     session_id: sessionId,
     message,
     voice_mode: voiceMode,
+    language,
   });
   return data; // { reply, mood }
 }

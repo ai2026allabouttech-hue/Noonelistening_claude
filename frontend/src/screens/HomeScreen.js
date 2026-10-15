@@ -95,7 +95,7 @@ export default function HomeScreen() {
                 Echo.
               </h2>
               <p className="mt-6 text-secondary text-sm md:text-base max-w-xs leading-relaxed">
-                Someone answers. Not with advice. With presence.
+                Say it out loud, in your own language. Someone answers, with presence.
               </p>
             </div>
           </div>
@@ -110,13 +110,6 @@ export default function HomeScreen() {
           className="font-mono text-[10px] tracking-widest2 uppercase text-muted hover:text-primary transition-colors duration-500"
         >
           close the room →
-        </button>
-        <button
-          data-testid="home-voice-btn"
-          onClick={() => navigate("/voice")}
-          className="font-mono text-[10px] tracking-widest2 uppercase text-muted hover:text-primary transition-colors duration-500"
-        >
-          talk to echo out loud →
         </button>
       </div>
     </div>

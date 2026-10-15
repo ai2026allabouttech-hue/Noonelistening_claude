@@ -3,10 +3,10 @@ import { useNavigate } from "react-router-dom";
 import ExitModal from "@/components/ExitModal";
 import useExitGuard from "@/hooks/useExitGuard";
 import { loadIdentity } from "@/App";
-import { sendEchoMessage, fetchSpeech } from "@/services/echoService";
+import { sendEchoMessage, fetchSpeech, fetchHistory } from "@/services/echoService";
+import { LANGUAGES, LANG_KEY, defaultLanguage } from "@/lib/languages";
 
-// The browser's built-in "ears" (speech-to-text). Free. Works in Chrome,
-// Edge and Safari. Not in Firefox.
+// The browser's built-in "ears" (speech-to-text). Chrome, Edge, Safari.
 const SpeechRec =
   typeof window !== "undefined"
     ? window.SpeechRecognition || window.webkitSpeechRecognition
@@ -14,12 +14,125 @@ const SpeechRec =
 
 const VOICE_KEY = "nol_voice_pref_v1";
 
-// A tiny silent sound. Playing it on the first tap "unlocks" audio on
-// iPhones, which otherwise block sound that starts later by itself.
+// Tiny silent sound: playing it on the first tap unlocks audio on iPhones.
 const SILENT_WAV =
   "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const label = "font-mono text-[10px] tracking-widest2 uppercase";
+
+function Transcript({ turns, heard, phase }) {
+  const endRef = useRef(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [turns, heard]);
+  return (
+    <div
+      data-testid="voice-transcript"
+      className="relative z-10 flex-1 min-h-0 overflow-y-auto scroll-quiet w-full px-6 md:px-12 py-8"
+    >
+      <div className="max-w-2xl mx-auto flex flex-col gap-8">
+        {turns.map((t) =>
+          t.role === "user" ? (
+            <p
+              key={t.id}
+              data-testid="voice-turn-user"
+              className="self-end max-w-[80%] font-mono text-[13px] tracking-wide text-secondary text-right leading-relaxed whitespace-pre-wrap"
+            >
+              {t.text}
+            </p>
+          ) : (
+            <p
+              key={t.id}
+              data-testid="voice-turn-echo"
+              className="self-start max-w-[92%] font-serif font-light text-2xl md:text-3xl text-primary leading-[1.35] whitespace-pre-wrap fade-in"
+              style={{ letterSpacing: "-0.01em" }}
+            >
+              {t.text}
+            </p>
+          )
+        )}
+        {phase === "listening" && heard && (
+          <p
+            data-testid="voice-heard"
+            className="self-end max-w-[80%] font-mono text-[13px] tracking-wide text-muted text-right leading-relaxed"
+          >
+            {heard}
+          </p>
+        )}
+        <div ref={endRef} />
+      </div>
+    </div>
+  );
+}
+
+function Chooser({ voice, pickVoice, lang, pickLang, begin }) {
+  return (
+    <div
+      data-testid="voice-choose"
+      className="relative z-10 flex-1 flex flex-col items-center justify-center px-8 text-center fade-in"
+    >
+      <p className={`${label} text-secondary mb-6`}>who would you like to talk to</p>
+      <h1
+        className="font-serif italic font-light text-4xl md:text-5xl text-primary leading-snug mb-10"
+        style={{ letterSpacing: "-0.01em" }}
+      >
+        Say it out loud.
+        <br />
+        <span className="text-secondary">I'll listen.</span>
+      </h1>
+
+      <div className="flex flex-wrap justify-center gap-4 mb-8">
+        {[
+          { id: "female", label: "a woman's voice" },
+          { id: "male", label: "a man's voice" },
+        ].map((opt) => (
+          <button
+            key={opt.id}
+            data-testid={`voice-pick-${opt.id}`}
+            onClick={() => pickVoice(opt.id)}
+            aria-pressed={voice === opt.id}
+            className={`px-6 py-4 ${label} border transition-colors duration-500 ${
+              voice === opt.id
+                ? "border-primary text-primary bg-white/5"
+                : "border-border-subtle text-secondary hover:text-primary"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      <label className={`${label} text-secondary mb-3`} htmlFor="voice-lang">
+        i'll speak in
+      </label>
+      <select
+        id="voice-lang"
+        data-testid="voice-language-select"
+        value={lang}
+        onChange={(e) => pickLang(e.target.value)}
+        className="mb-10 bg-transparent border border-border-subtle text-primary font-mono text-[12px] tracking-wide px-5 py-3 outline-none focus:border-primary"
+      >
+        {LANGUAGES.map((l) => (
+          <option key={l.code} value={l.code} className="bg-black">
+            {l.name}
+          </option>
+        ))}
+      </select>
+
+      <button
+        data-testid="voice-begin-btn"
+        onClick={begin}
+        className={`px-10 py-4 ${label} bg-primary text-app hover:bg-white transition-colors duration-500`}
+      >
+        begin
+      </button>
+      <p className={`mt-8 ${label} text-secondary max-w-xs leading-relaxed`}>
+        your browser will ask to use the microphone
+      </p>
+    </div>
+  );
+}
 
 export default function VoiceChatScreen() {
   const navigate = useNavigate();
@@ -28,19 +141,26 @@ export default function VoiceChatScreen() {
 
   // phase: choose | listening | thinking | speaking | paused
   const [phase, setPhase] = useState("choose");
-  const [voice, setVoice] = useState(
-    () => localStorage.getItem(VOICE_KEY) || "female"
-  );
-  const [heard, setHeard] = useState(""); // what the person just said
-  const [echoText, setEchoText] = useState(""); // what Echo just said
+  const [voice, setVoice] = useState(() => localStorage.getItem(VOICE_KEY) || "female");
+  const [lang, setLang] = useState(defaultLanguage);
+  const [heard, setHeard] = useState("");
+  const [turns, setTurns] = useState([]);
   const [notice, setNotice] = useState("");
 
-  // Refs hold values that the speech callbacks need to read "live".
   const phaseRef = useRef("choose");
   const voiceRef = useRef(voice);
-  const activeRef = useRef(false); // is the voice session running?
+  const langRef = useRef(lang);
+  const activeRef = useRef(false);
   const recogRef = useRef(null);
   const audioRef = useRef(null);
+
+  useEffect(() => {
+    if (!identity?.sessionId) return;
+    fetchHistory(identity.sessionId)
+      .then((h) => setTurns(h.map((m) => ({ id: m.id, role: m.role, text: m.text }))))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const changePhase = (p) => {
     phaseRef.current = p;
@@ -51,6 +171,12 @@ export default function VoiceChatScreen() {
     setVoice(v);
     voiceRef.current = v;
     localStorage.setItem(VOICE_KEY, v);
+  };
+
+  const pickLang = (code) => {
+    setLang(code);
+    langRef.current = code;
+    localStorage.setItem(LANG_KEY, code);
   };
 
   function stopRecognition() {
@@ -72,7 +198,6 @@ export default function VoiceChatScreen() {
     const a = audioRef.current;
     if (a) {
       a.pause();
-      // tells the waiting code "playback finished" so it moves on
       a.dispatchEvent(new Event("ended"));
     }
   }
@@ -83,9 +208,9 @@ export default function VoiceChatScreen() {
     stopRecognition();
 
     const rec = new SpeechRec();
-    rec.lang = navigator.language || "en-US";
-    rec.continuous = false; // stops by itself when the person pauses
-    rec.interimResults = true; // shows words live while they speak
+    rec.lang = langRef.current;
+    rec.continuous = false;
+    rec.interimResults = true;
 
     let finalText = "";
 
@@ -105,14 +230,13 @@ export default function VoiceChatScreen() {
         setNotice("Microphone is blocked. Allow it in your browser, then tap resume.");
         changePhase("paused");
       }
-      // "no-speech" / "aborted" are normal; onend will restart listening
     };
 
     rec.onend = () => {
       if (!activeRef.current || phaseRef.current !== "listening") return;
       const text = finalText.trim();
       if (text) handleUserSpeech(text);
-      else setTimeout(startListening, 300); // silence: keep waiting
+      else setTimeout(startListening, 300);
     };
 
     recogRef.current = rec;
@@ -127,18 +251,16 @@ export default function VoiceChatScreen() {
 
   // --- 2. THINK -------------------------------------------------------------
   async function handleUserSpeech(text) {
-    stopRecognition(); // never listen while Echo talks (avoids hearing itself)
+    stopRecognition();
     changePhase("thinking");
-    setHeard(text);
+    setHeard("");
     setNotice("");
+    setTurns((t) => [...t, { id: `u-${Date.now()}`, role: "user", text }]);
+    const langName = LANGUAGES.find((l) => l.code === langRef.current)?.name;
     try {
-      const { reply, mood } = await sendEchoMessage(
-        identity.sessionId,
-        text,
-        true // voice_mode: ask for short, spoken-style answers
-      );
+      const { reply, mood } = await sendEchoMessage(identity.sessionId, text, true, langName);
       if (!activeRef.current) return;
-      setEchoText(reply);
+      setTurns((t) => [...t, { id: `e-${Date.now()}`, role: "echo", text: reply }]);
       await speak(reply, mood);
     } catch {
       setNotice("Echo went quiet for a moment. I'm still here, say it again.");
@@ -162,8 +284,6 @@ export default function VoiceChatScreen() {
       });
       URL.revokeObjectURL(url);
     } catch {
-      // Voice failed (limit reached, network...). We do NOT fall back to a
-      // robotic voice. We show the words and give time to read them.
       setNotice("Voice is resting for a moment. Read this one instead.");
       await sleep(Math.min(9000, 2000 + text.length * 45));
     }
@@ -187,12 +307,10 @@ export default function VoiceChatScreen() {
     changePhase("paused");
   };
 
-  // Tap the circle while Echo is talking to cut in and speak.
   const interrupt = () => {
     if (phaseRef.current === "speaking") stopAudio();
   };
 
-  // Stop everything when leaving this screen
   useEffect(
     () => () => {
       activeRef.current = false;
@@ -209,166 +327,114 @@ export default function VoiceChatScreen() {
     paused: "paused",
   }[phase];
 
+  const langName = LANGUAGES.find((l) => l.code === lang)?.name;
+
   return (
-    <div className="grain relative min-h-screen flex flex-col overflow-hidden">
+    <div className="grain relative h-[100dvh] flex flex-col overflow-hidden">
       <style>{`
         @keyframes nolBreathe { 0%,100% { transform: scale(1); opacity:.55 } 50% { transform: scale(1.12); opacity:.9 } }
         @keyframes nolSpeak { 0%,100% { transform: scale(1); opacity:.7 } 50% { transform: scale(1.22); opacity:1 } }
       `}</style>
 
-      {/* Top bar */}
       <div className="relative z-10 flex items-center justify-between px-6 md:px-10 py-6 border-b border-border-subtle">
         <button
           data-testid="voice-back-btn"
-          onClick={() => navigate("/echo")}
-          className="font-mono text-[10px] tracking-widest2 uppercase text-muted hover:text-primary transition-colors duration-500"
+          onClick={() => {
+            pause();
+            navigate("/home");
+          }}
+          className={`${label} text-secondary hover:text-primary transition-colors duration-500`}
         >
-          ← type instead
+          ← back
         </button>
-        <span className="font-mono text-[10px] tracking-widest2 uppercase text-muted">
-          echo · voice
+        <span data-testid="voice-header" className={`${label} text-secondary`}>
+          echo · {voice === "male" ? "his" : "her"} voice · {langName}
         </span>
         <button
           data-testid="voice-close-btn"
           onClick={requestExit}
-          className="font-mono text-[10px] tracking-widest2 uppercase text-muted hover:text-primary transition-colors duration-500"
+          className={`${label} text-secondary hover:text-primary transition-colors duration-500`}
         >
           close ×
         </button>
       </div>
 
-      {/* Not supported (e.g. Firefox) */}
       {!SpeechRec && (
         <div className="relative z-10 flex-1 flex items-center justify-center px-8 text-center">
           <p className="font-serif italic font-light text-2xl text-secondary max-w-md leading-snug">
-            This browser can't listen. Please open the app in Chrome, Edge or
-            Safari, or type to Echo instead.
+            This browser can't listen. Please open the app in Chrome, Edge or Safari.
           </p>
         </div>
       )}
 
-      {/* Step 1: choose the voice */}
       {SpeechRec && phase === "choose" && (
-        <div
-          data-testid="voice-choose"
-          className="relative z-10 flex-1 flex flex-col items-center justify-center px-8 text-center fade-in"
-        >
-          <p className="font-mono text-[10px] tracking-widest2 uppercase text-muted mb-6">
-            who would you like to talk to
-          </p>
-          <h1
-            className="font-serif italic font-light text-4xl md:text-5xl text-primary leading-snug mb-12"
-            style={{ letterSpacing: "-0.01em" }}
-          >
-            Say it out loud.
-            <br />
-            <span className="text-secondary">I'll listen.</span>
-          </h1>
-
-          <div className="flex gap-4 mb-12">
-            {[
-              { id: "female", label: "a woman's voice" },
-              { id: "male", label: "a man's voice" },
-            ].map((opt) => (
-              <button
-                key={opt.id}
-                data-testid={`voice-pick-${opt.id}`}
-                onClick={() => pickVoice(opt.id)}
-                className={`px-6 py-4 font-mono text-[10px] tracking-widest2 uppercase border transition-colors duration-500 ${
-                  voice === opt.id
-                    ? "border-primary text-primary"
-                    : "border-border-subtle text-muted hover:text-primary"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-
-          <button
-            data-testid="voice-begin-btn"
-            onClick={begin}
-            className="px-10 py-4 font-mono text-[10px] tracking-widest2 uppercase bg-primary text-app hover:bg-white transition-colors duration-500"
-          >
-            begin
-          </button>
-          <p className="mt-8 font-mono text-[10px] tracking-widest2 uppercase text-muted max-w-xs leading-relaxed">
-            your browser will ask to use the microphone
-          </p>
-        </div>
+        <Chooser voice={voice} pickVoice={pickVoice} lang={lang} pickLang={pickLang} begin={begin} />
       )}
 
-      {/* Step 2: the conversation */}
       {SpeechRec && phase !== "choose" && (
-        <div className="relative z-10 flex-1 flex flex-col items-center justify-between px-6 md:px-12 py-10">
-          <div className="w-full max-w-2xl text-center min-h-[9rem]">
-            {echoText && (
-              <p
-                data-testid="voice-echo-text"
-                className="font-serif font-light text-2xl md:text-3xl text-primary leading-[1.35] fade-in"
-                style={{ letterSpacing: "-0.01em" }}
-              >
-                {echoText}
-              </p>
-            )}
-          </div>
+        <>
+          <Transcript turns={turns} heard={heard} phase={phase} />
 
-          <button
-            data-testid="voice-orb"
-            onClick={phase === "paused" ? begin : interrupt}
-            aria-label={phase === "paused" ? "resume" : "voice orb"}
-            className="relative flex items-center justify-center h-44 w-44 rounded-full focus:outline-none"
-          >
-            <span
-              className="absolute inset-0 rounded-full"
-              style={{
-                background:
-                  "radial-gradient(circle, rgba(244,244,245,0.25) 0%, rgba(244,244,245,0.04) 70%)",
-                animation:
-                  phase === "listening"
-                    ? "nolBreathe 3.2s ease-in-out infinite"
-                    : phase === "speaking"
-                    ? "nolSpeak 1.4s ease-in-out infinite"
-                    : phase === "thinking"
-                    ? "nolBreathe 1.6s ease-in-out infinite"
-                    : "none",
-                opacity: phase === "paused" ? 0.3 : undefined,
-              }}
-            />
-            <span className="relative font-mono text-[10px] tracking-widest2 uppercase text-secondary">
-              {statusLabel}
-            </span>
-          </button>
-
-          <div className="w-full max-w-2xl text-center">
-            <p
-              data-testid="voice-heard"
-              className="font-mono text-[13px] tracking-wide text-secondary leading-relaxed min-h-[3rem]"
+          <div className="relative z-10 flex flex-col items-center px-6 pb-8 pt-4 border-t border-border-subtle">
+            <button
+              data-testid="voice-orb"
+              onClick={phase === "paused" ? begin : interrupt}
+              aria-label={phase === "paused" ? "resume" : "voice orb"}
+              className="relative flex items-center justify-center h-32 w-32 rounded-full focus:outline-none"
             >
-              {heard}
-            </p>
+              <span
+                className="absolute inset-0 rounded-full"
+                style={{
+                  background:
+                    "radial-gradient(circle, rgba(244,244,245,0.25) 0%, rgba(244,244,245,0.04) 70%)",
+                  animation:
+                    phase === "listening"
+                      ? "nolBreathe 3.2s ease-in-out infinite"
+                      : phase === "speaking"
+                      ? "nolSpeak 1.4s ease-in-out infinite"
+                      : phase === "thinking"
+                      ? "nolBreathe 1.6s ease-in-out infinite"
+                      : "none",
+                  opacity: phase === "paused" ? 0.3 : undefined,
+                }}
+              />
+              <span data-testid="voice-status" className={`relative ${label} text-secondary`}>
+                {statusLabel}
+              </span>
+            </button>
+
             {notice && (
-              <p
-                data-testid="voice-notice"
-                className="mt-4 font-mono text-[10px] tracking-widest2 uppercase text-muted"
-              >
+              <p data-testid="voice-notice" className={`mt-3 ${label} text-secondary text-center`}>
                 {notice}
               </p>
             )}
-            <div className="mt-8 flex items-center justify-center gap-8">
+            {phase === "speaking" && (
+              <p className={`mt-3 ${label} text-muted`}>tap the circle to interrupt</p>
+            )}
+
+            <div className="mt-5 flex items-center justify-center gap-8">
               {phase === "paused" ? (
-                <button
-                  data-testid="voice-resume-btn"
-                  onClick={begin}
-                  className="font-mono text-[10px] tracking-widest2 uppercase text-muted hover:text-primary transition-colors duration-500"
-                >
-                  resume
-                </button>
+                <>
+                  <button
+                    data-testid="voice-resume-btn"
+                    onClick={begin}
+                    className={`${label} text-secondary hover:text-primary transition-colors duration-500`}
+                  >
+                    resume
+                  </button>
+                  <button
+                    data-testid="voice-change-btn"
+                    onClick={() => changePhase("choose")}
+                    className={`${label} text-secondary hover:text-primary transition-colors duration-500`}
+                  >
+                    change voice / language
+                  </button>
+                </>
               ) : (
                 <button
                   data-testid="voice-pause-btn"
                   onClick={pause}
-                  className="font-mono text-[10px] tracking-widest2 uppercase text-muted hover:text-primary transition-colors duration-500"
+                  className={`${label} text-secondary hover:text-primary transition-colors duration-500`}
                 >
                   pause
                 </button>
@@ -379,18 +445,13 @@ export default function VoiceChatScreen() {
                   pause();
                   navigate("/home");
                 }}
-                className="font-mono text-[10px] tracking-widest2 uppercase text-muted hover:text-primary transition-colors duration-500"
+                className={`${label} text-secondary hover:text-primary transition-colors duration-500`}
               >
                 end
               </button>
             </div>
-            {phase === "speaking" && (
-              <p className="mt-6 font-mono text-[10px] tracking-widest2 uppercase text-muted">
-                tap the circle to interrupt
-              </p>
-            )}
           </div>
-        </div>
+        </>
       )}
 
       <ExitModal
