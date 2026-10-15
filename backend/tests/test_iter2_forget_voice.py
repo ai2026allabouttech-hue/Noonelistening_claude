@@ -43,9 +43,9 @@ class TestSpeak:
     def test_speak_returns_wav(self, s, voice):
         r = s.post(f"{BASE_URL}/api/voice/speak", json={"text": "I'm here with you.", "voice": voice, "mood": "sad"}, timeout=90)
         assert r.status_code == 200, r.text[:200]
-        assert r.headers["content-type"].startswith("audio/wav")
-        assert r.content[:4] == b"RIFF"
-        assert len(r.content) > 5000
+        # iter3: OpenAI TTS primary (audio/mpeg); Gemini wav only fallback
+        assert r.headers["content-type"].startswith(("audio/mpeg", "audio/wav"))
+        assert len(r.content) > 2000
 
     def test_speak_invalid_voice_422(self, s):
         r = s.post(f"{BASE_URL}/api/voice/speak", json={"text": "hi", "voice": "robot"})

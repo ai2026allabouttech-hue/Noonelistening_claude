@@ -1,0 +1,25 @@
+{
+  "summary": "Iteration 3: tested voice-only Echo with OpenAI TTS (male/female), multilingual replies and the removal of typed chat. Backend: 9/9 new tests and 33/33 regression tests pass. /api/voice/speak returns 200 audio/mpeg for both voices, including Hindi and Spanish text, and the male and female audio differ, so the man's voice bug is fixed. /api/echo/chat with language=Hindi replies in Devanagari script and Spanish replies in Spanish. Frontend: I mocked window.SpeechRecognition to send a final result. The full loop works: listening -> POST /echo/chat {voice_mode:true, language:'Hindi'} -> Hindi echo turn -> POST /voice/speak {voice:'male'} 200 audio/mpeg -> 'echo is speaking'. Recognition lang is set to hi-IN. All other requested checks pass: chooser, 18 languages, persistence after reload, pause/resume/change/end, /voice->/echo redirect, home-voice-btn and chat-input gone, previous turns load into the transcript, exit modal stay/leave, farewell leave sends DELETE /api/session and clears identity, empty room vent POST.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Echo voice screen, mobile 390px", "issues": ["The top bar is crowded: the voice-header text 'echo · her voice · english' touches the '← back' and 'close ×' buttons with no gap, so it reads '← BACKECHO · HER VOICE · ENGLISHCLOSE ×'. Hide voice-header below md (hidden md:inline) or move it to its own line."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter3_multilingual_voice.py", "/app/backend/tests/test_iter2_forget_voice.py", "/app/backend/tests/test_noonelistening_extra.py", "/app/test_reports/pytest/pytest_iter3.xml", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": ["Fix the crowded mobile header on /echo (voice-header runs into the back/close buttons)."],
+  "critical_code_review_comments": [
+    "VoiceChatScreen: /echo/history is fetched 2x per mount because of the StrictMode double effect. Harmless, but the effect could be guarded.",
+    "voice_speak: Gemini fallback runs on any OpenAI failure. Gemini quota is exhausted, so a 429 'voice is busy' would reach the client, which already handles it with a notice. OK.",
+    "fetchSpeech comment still says 'Returns an audio Blob (WAV)'. It is now MP3. Cosmetic.",
+    "server.py: logger is defined at the bottom of the module but used inside functions. Works at runtime. Consider moving it to the top."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter3_multilingual_voice.py (new)", "/app/backend/tests/test_iter2_forget_voice.py (speak test now accepts audio/mpeg)", "/app/backend/tests/test_noonelistening_extra.py (speak test now accepts audio/mpeg)"],
+  "success_rate": {"backend": "100%", "frontend": "100% functional (1 minor mobile design issue)"},
+  "seed_data_creation": "Only temporary sessions; the test fixture deletes them.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "No auth. Tests that drive the voice UI should mock SpeechRecognition with page.add_init_script (FakeRec with start() that emits onresult {resultIndex:0, results:[{0:{transcript}, isFinal:true}]} then onend). This must run before the app loads, because SpeechRec is captured at module load. OpenAI TTS (coral/onyx, tts-1) returns audio/mpeg. Gemini fallback 429s by design. Keep TTS calls modest. Typed chat (AIChatScreen, chat-input, home-voice-btn) was removed on purpose."
+}

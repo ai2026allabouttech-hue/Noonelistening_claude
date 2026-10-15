@@ -13,6 +13,11 @@ React (CRA/craco) frontend + FastAPI backend + local MongoDB. Echo chat via Clau
 - Voice on with user's Gemini key (woman=Sulafat, man=Achird); typed chat has "echo replies in" text/woman/man choice; talk screen keeps its own choice
 - Chat layout fixed height so voice row stays visible; audio race/URL leak fixed
 - Testing: backend 33/33, frontend 100%
+## Done (iteration 3)
+- Man voice bug root cause: Gemini free tier 10 TTS/day exhausted (429). OpenAI TTS via Emergent key now primary (female=coral, male=onyx, tts-1), Gemini fallback
+- Echo is voice-only (typed chat removed; /voice -> /echo); live transcript shown
+- Multilingual: 18 languages picker; speech recognition lang + Echo replies in chosen language
+- Testing: backend 42/42, frontend 100%
 ## Backlog
 - P1: auto-delete abandoned sessions (Mongo TTL index)
 - P2: raise contrast of 10px muted labels; validate session_id; run mood + reply in parallel

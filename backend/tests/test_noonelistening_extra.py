@@ -53,4 +53,4 @@ def test_voice_speak_configured_returns_wav():
     # GEMINI_API_KEY is now configured (iteration 2) -> real audio
     r = requests.post(f"{API}/voice/speak", json={"text": "hi", "voice": "female"}, timeout=90)
     assert r.status_code == 200
-    assert r.headers["content-type"].startswith("audio/wav")
+    assert r.headers["content-type"].startswith(("audio/mpeg", "audio/wav"))

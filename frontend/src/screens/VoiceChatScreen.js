@@ -347,7 +347,7 @@ export default function VoiceChatScreen() {
         >
           ← back
         </button>
-        <span data-testid="voice-header" className={`${label} text-secondary`}>
+        <span data-testid="voice-header" className={`${label} text-secondary hidden sm:inline`}>
           echo · {voice === "male" ? "his" : "her"} voice · {langName}
         </span>
         <button
