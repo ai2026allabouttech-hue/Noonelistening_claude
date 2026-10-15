@@ -466,7 +466,7 @@ async def _elevenlabs_tts(text: str, voice: str, lang: Optional[str]) -> tuple:
         try:
             return await run(native), native
         except Exception as exc:  # noqa: BLE001
-            if "402" in str(exc) or "payment" in str(exc).lower():
+            if getattr(exc, "status_code", None) == 402 or "payment" in str(exc).lower():
                 _el_native_blocked_until = time.time() + NATIVE_RETRY_SECONDS
             logger.info("native voice unavailable, using built-in: %s", str(exc)[:160])
     default = EL_DEFAULT_VOICES[voice]
@@ -613,7 +613,9 @@ async def voice_speak(payload: SpeakIn):
 @api_router.get("/voice/preview")
 async def voice_preview(voice: Literal["female", "male"] = "female", sample: str = "auto"):
     """A short sample of a voice in a language. Cached so it costs credits once."""
-    text = PREVIEW_TEXTS.get(sample, PREVIEW_TEXTS["en"])
+    if sample not in PREVIEW_TEXTS:
+        sample = "en"
+    text = PREVIEW_TEXTS[sample]
     if isinstance(text, tuple):
         text = text[0] if voice == "female" else text[1]
     lang = "hi" if sample == "hinglish" else (None if sample == "auto" else sample)
@@ -621,6 +623,7 @@ async def voice_preview(voice: Literal["female", "male"] = "female", sample: str
     if ELEVENLABS_API_KEY:
         native = _active_native(lang, voice)
         candidates = ([f"el:{native}"] if native else []) + [f"el:{EL_DEFAULT_VOICES[voice]}"]
+    candidates += [f"openai:{OPENAI_VOICES[voice]}", f"gemini:{VOICE_NAMES[voice]}"]
     for tag in candidates:
         hit = await db.voice_previews.find_one({"key": f"{sample}:{tag}"}, {"_id": 0})
         if hit:

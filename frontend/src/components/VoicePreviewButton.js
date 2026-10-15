@@ -12,7 +12,19 @@ export default function VoicePreviewButton({ voice, sample, label }) {
     setState("idle");
   }, [sample]);
 
-  useEffect(() => () => audioRef.current?.pause(), []);
+  useEffect(() => {
+    const onOther = (ev) => {
+      if (ev.detail !== voice) {
+        audioRef.current?.pause();
+        setState("idle");
+      }
+    };
+    window.addEventListener("nol-preview-play", onOther);
+    return () => {
+      window.removeEventListener("nol-preview-play", onOther);
+      audioRef.current?.pause();
+    };
+  }, [voice]);
 
   const toggle = async (e) => {
     e.stopPropagation();
@@ -26,12 +38,6 @@ export default function VoicePreviewButton({ voice, sample, label }) {
       audioRef.current = new Audio();
       audioRef.current.onended = () => setState("idle");
       audioRef.current.onerror = () => setState("error");
-      window.addEventListener("nol-preview-play", (ev) => {
-        if (ev.detail !== voice) {
-          audioRef.current.pause();
-          setState("idle");
-        }
-      });
     }
     const a = audioRef.current;
     setState("loading");

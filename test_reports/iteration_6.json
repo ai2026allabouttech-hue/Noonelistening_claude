@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 6 tested voice preview, native voice fallback, wide-model languages and gendered replies. Backend: 12/12 pytest pass (pytest_iter6.xml). (1) GET /api/voice/preview returns 200 audio/mpeg for ta, hinglish, hi, te, mr and auto. A repeat request returns identical bytes from the Mongo cache (te: 3.94s first, then 0.12s), and the backend log shows no new ElevenLabs call. Bad voice -> 422. (2) Native fallback: te female tried Madhavi (4XvBGC...), got 402, and fell back to Sarah in the same request. Later hi/ta/te speak calls skipped the native voices (the block flag worked), and /voice/speak returned 200 audio/mpeg for hi, ta and te. (3) te and mr went through ElevenLabs (eleven_v4_turbo path) with no 'trying openai' warning. (4) Hindi chat: female voice -> 'sun rahi hoon', 'sun sakti hoon'; male -> 'sun raha hoon', 'sunoonga'. Frontend /echo chooser, desktop 1920: the language select sits above the voices. The hear buttons call /voice/preview with sample=ta, hinglish or auto as expected and show STOP while playing. Clicking the other preview stops the first one. Changing language resets both to HEAR. 'hear' does not change the voice selection. Mobile 390: no horizontal overflow. Full loop with intercepted transcribe: the /echo/chat body includes voice:'male' and language:'Hinglish', speak returned 200, and the reply was masculine Hinglish ('sun raha hoon').",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/voice/preview", "issue": "Any unknown sample value (e.g. sample=xx) is passed to ElevenLabs as language_code='xx'. ElevenLabs rejects it, the app falls back to OpenAI, and the result is stored as a new cache key such as 'xx:openai:coral'. Arbitrary sample strings therefore create unlimited cache entries and spend TTS credits. Fix: check sample against PREVIEW_TEXTS keys (400, or map to 'en')."},
+      {"endpoint": "GET /api/voice/preview", "issue": "The cache lookup only checks 'el:' tags when ELEVENLABS_API_KEY is set. A preview made by the OpenAI or Gemini fallback (e.g. after the ElevenLabs quota runs out) is saved but never read back, so every repeat request generates speech again. Confirmed: two identical sample=xx calls both logged 'elevenlabs tts failed, trying openai'. Fix: also look up the openai/gemini tags, or look up by '{sample}:{voice}' only."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter6_voice_preview.py", "/app/test_reports/pytest/pytest_iter6.xml"],
+  "action_items": [
+    "Validate the preview 'sample' parameter against the PREVIEW_TEXTS keys",
+    "Make the preview cache read work for non-ElevenLabs tags (openai:coral/onyx, gemini:*)"
+  ],
+  "critical_code_review_comments": [
+    "VoicePreviewButton adds a window 'nol-preview-play' listener the first time it plays and never removes it. The chooser remounts each time the user picks 'change voice / language', so listeners pile up and setState gets called on unmounted components. Register the listener in a useEffect with cleanup.",
+    "_el_native_blocked_until is kept per process, so each backend restart spends one 402 call (graceful, already noted in iteration 5).",
+    "The 402 check looks for '402' in str(exc). Using exc.status_code from the ElevenLabs ApiError would be more reliable."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter6_voice_preview.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "New cached previews: te:el:EXAVITQu4vr4xnSDxMaL, mr:el:nPczCjzI2devNBz1zQrb, auto:el:EXAVITQu4vr4xnSDxMaL (kept on purpose). The test entry xx:openai:coral was deleted. Test sessions were deleted.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Previews are cached in noonelistening.voice_previews (key '{sample}:el:{voice_id}'). Mic fake: add_init_script that overrides getUserMedia with an OscillatorNode stream; page.route **/api/voice/transcribe; set localStorage nol_identity_v1, nol_lang_v2, nol_voice_pref_v1. Native voices are blocked for 1h in the process after the first 402. Keep new ElevenLabs generations few (free plan)."
+}

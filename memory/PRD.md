@@ -24,6 +24,10 @@ React (CRA/craco) frontend + FastAPI backend + local MongoDB. Echo chat via Clau
 - Languages: Any (auto), Hinglish + 18 languages; Echo replies in same language/mix
 - Speed: mood + reply in parallel
 - Testing: iterations 4-5 100%
+## Done (iteration 6)
+- Voice preview: GET /api/voice/preview (per voice + language sample, Mongo-cached in voice_previews); "hear" buttons in chooser
+- Native voices map: hi Meher/Viraj, ta Yazhini/Maneesh, te Madhavi/Jayesh; auto-used when ElevenLabs plan allows (402 -> fallback, retry hourly). Voices must be in user's ElevenLabs "My Voices"
+- te/bn/mr/gu/ur use eleven_v4_turbo; Echo uses matching grammatical gender for chosen voice
 ## Backlog
 - P1: auto-delete abandoned sessions (Mongo TTL index)
 - P2: raise contrast of 10px muted labels; validate session_id; run mood + reply in parallel
