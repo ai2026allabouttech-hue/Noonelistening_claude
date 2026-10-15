@@ -444,6 +444,15 @@ async def voice_speak(payload: SpeakIn):
     return Response(content=wav, media_type="audio/wav")
 
 
+@api_router.delete("/session/{session_id}")
+async def forget_session(session_id: str):
+    """Leave the room: erase everything tied to this session."""
+    m = await db.messages.delete_many({"session_id": session_id})
+    v = await db.vents.delete_many({"session_id": session_id})
+    await db.sessions.delete_many({"session_id": session_id})
+    return {"ok": True, "messages_deleted": m.deleted_count, "vents_deleted": v.deleted_count}
+
+
 @api_router.get("/echo/history/{session_id}")
 async def get_history(session_id: str):
     messages = await _load_history(session_id, limit=200)

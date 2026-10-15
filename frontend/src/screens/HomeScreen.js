@@ -116,7 +116,7 @@ export default function HomeScreen() {
           onClick={() => navigate("/voice")}
           className="font-mono text-[10px] tracking-widest2 uppercase text-muted hover:text-primary transition-colors duration-500"
         >
-          or just talk →
+          talk to echo out loud →
         </button>
       </div>
     </div>

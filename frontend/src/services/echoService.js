@@ -32,6 +32,10 @@ export async function recordVent({ sessionId, kind, text, durationMs }) {
   return data;
 }
 
+export async function forgetSession(sessionId) {
+  await axios.delete(`${API}/session/${sessionId}`);
+}
+
 export async function fetchHistory(sessionId) {
   const { data } = await axios.get(`${API}/echo/history/${sessionId}`);
   return data.messages || [];

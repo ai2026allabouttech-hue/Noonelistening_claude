@@ -4,7 +4,14 @@ import MoodBadge from "@/components/MoodBadge";
 import ExitModal from "@/components/ExitModal";
 import useExitGuard from "@/hooks/useExitGuard";
 import { loadIdentity } from "@/App";
-import { sendEchoMessage, fetchHistory } from "@/services/echoService";
+import { sendEchoMessage, fetchHistory, fetchSpeech } from "@/services/echoService";
+
+const SPEAK_KEY = "nol_chat_speak_v1"; // "off" | "female" | "male"
+const VOICE_OPTS = [
+  { id: "off", label: "text only" },
+  { id: "female", label: "woman's voice" },
+  { id: "male", label: "man's voice" },
+];
 
 const BG_IMAGE =
   "https://images.pexels.com/photos/7641148/pexels-photo-7641148.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
@@ -17,8 +24,38 @@ export default function AIChatScreen() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
+  const [speakAs, setSpeakAs] = useState(
+    () => localStorage.getItem(SPEAK_KEY) || "off"
+  );
+  const [voiceNotice, setVoiceNotice] = useState(null);
+  const audioRef = useRef(null);
   const endRef = useRef(null);
   const taRef = useRef(null);
+
+  const pickSpeak = (v) => {
+    setSpeakAs(v);
+    localStorage.setItem(SPEAK_KEY, v);
+    if (v !== "off") localStorage.setItem("nol_voice_pref_v1", v);
+    if (!audioRef.current) audioRef.current = new Audio();
+    if (v === "off") audioRef.current.pause();
+  };
+
+  const speakReply = async (text, mood) => {
+    if (speakAs === "off") return;
+    setVoiceNotice(null);
+    try {
+      const blob = await fetchSpeech(text, speakAs, mood);
+      if (!audioRef.current) audioRef.current = new Audio();
+      const a = audioRef.current;
+      a.pause();
+      a.src = URL.createObjectURL(blob);
+      await a.play();
+    } catch {
+      setVoiceNotice("Voice is resting for a moment. Read this one instead.");
+    }
+  };
+
+  useEffect(() => () => audioRef.current?.pause(), []);
 
   useEffect(() => {
     if (!identity?.sessionId) return;
@@ -73,6 +110,7 @@ export default function AIChatScreen() {
           },
         ];
       });
+      speakReply(reply, mood);
     } catch (e) {
       setError("Echo is quiet for a moment. Try again.");
     } finally {
@@ -124,6 +162,31 @@ export default function AIChatScreen() {
         >
           close ×
         </button>
+      </div>
+
+      {/* Reply voice choice */}
+      <div
+        data-testid="chat-voice-choice"
+        className="relative z-10 flex flex-wrap items-center justify-center gap-2 px-6 py-3 border-b border-border-subtle"
+      >
+        <span className="font-mono text-[10px] tracking-widest2 uppercase text-secondary mr-2">
+          echo replies in
+        </span>
+        {VOICE_OPTS.map((o) => (
+          <button
+            key={o.id}
+            data-testid={`chat-speak-${o.id}`}
+            onClick={() => pickSpeak(o.id)}
+            aria-pressed={speakAs === o.id}
+            className={`px-3 py-1.5 font-mono text-[10px] tracking-widest2 uppercase border transition-colors duration-500 ${
+              speakAs === o.id
+                ? "border-primary text-primary"
+                : "border-border-subtle text-secondary hover:text-primary"
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
       </div>
 
       {/* Messages */}
@@ -194,6 +257,15 @@ export default function AIChatScreen() {
               className="font-mono text-[10px] tracking-widest2 uppercase text-mood-angry-text self-center"
             >
               {error}
+            </p>
+          )}
+
+          {voiceNotice && (
+            <p
+              data-testid="chat-voice-notice"
+              className="font-mono text-[10px] tracking-widest2 uppercase text-secondary self-center"
+            >
+              {voiceNotice}
             </p>
           )}
 

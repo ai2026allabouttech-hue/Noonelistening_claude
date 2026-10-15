@@ -5,6 +5,8 @@ import {
   clearReminder,
   getReminderState,
 } from "@/services/notificationService";
+import { forgetSession } from "@/services/echoService";
+import { loadIdentity, clearIdentity } from "@/App";
 
 const BG_IMAGE =
   "https://images.unsplash.com/photo-1770795263316-f302a878ee64?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwxfHxkYXJrJTIwbWluaW1hbGlzdCUyMHRleHR1cmV8ZW58MHx8fHwxNzc2NjI1NDE4fDA&ixlib=rb-4.1.0&q=85";
@@ -13,6 +15,19 @@ export default function FarewellScreen() {
   const navigate = useNavigate();
   const [reminderOn, setReminderOn] = useState(false);
   const [reminderError, setReminderError] = useState(null);
+  const [leaving, setLeaving] = useState(false);
+
+  const leave = async () => {
+    setLeaving(true);
+    const id = loadIdentity()?.sessionId;
+    try {
+      if (id) await forgetSession(id);
+    } catch {
+      /* still forget locally */
+    }
+    clearIdentity();
+    navigate("/", { replace: true });
+  };
 
   useEffect(() => {
     const s = getReminderState();
@@ -126,10 +141,11 @@ export default function FarewellScreen() {
           </button>
           <button
             data-testid="farewell-leave-btn"
-            onClick={() => navigate("/")}
+            onClick={leave}
+            disabled={leaving}
             className="px-10 py-4 bg-primary text-app font-mono text-[11px] tracking-widest2 uppercase hover:bg-white transition-colors duration-500"
           >
-            leave the room
+            {leaving ? "forgetting…" : "leave the room"}
           </button>
         </div>
       </div>
