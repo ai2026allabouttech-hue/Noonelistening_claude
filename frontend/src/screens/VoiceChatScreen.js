@@ -389,10 +389,10 @@ export default function VoiceChatScreen() {
               </p>
             )}
             {phase === "speaking" && (
-              <p className={`mt-3 ${label} text-muted`}>tap the circle to interrupt</p>
+              <p className={`mt-3 ${label} text-secondary`}>tap the circle to interrupt</p>
             )}
             {phase === "listening" && (
-              <p className={`mt-3 ${label} text-muted`}>pause to send, or tap the circle</p>
+              <p className={`mt-3 ${label} text-secondary`}>pause to send, or tap the circle</p>
             )}
 
             <div className="mt-5 flex items-center justify-center gap-8">

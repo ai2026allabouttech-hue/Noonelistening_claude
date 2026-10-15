@@ -47,8 +47,9 @@ export default function useUtteranceRecorder() {
       const started = performance.now();
       let cancelled = false;
 
-      const finish = (cancel) => {
+      const finish = (cancel, manual = false) => {
         cancelled = cancel;
+        if (manual) spoke = true; // a tap always sends what was recorded
         cancelAnimationFrame(rafRef.current);
         src.disconnect();
         if (rec.state !== "inactive") rec.stop();
@@ -84,7 +85,7 @@ export default function useUtteranceRecorder() {
   }
 
   // Send what was said so far right now.
-  const stopNow = () => finishRef.current?.(false);
+  const stopNow = () => finishRef.current?.(false, true);
   const cancel = () => finishRef.current?.(true);
 
   function release() {

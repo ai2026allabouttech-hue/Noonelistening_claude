@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 4: tested ElevenLabs TTS (built-in Sarah/Brian voices, native Hindi 402 fallback), Whisper /api/voice/transcribe (TTS mp3 round-trip, tiny file, missing file), /api/echo/chat language modes (auto Hinglish, Hinglish, Tamil), history order, vent+forget regression. Backend 15/15 pass. Frontend /echo tested with fake getUserMedia (an OscillatorNode stream) and a route-intercepted /api/voice/transcribe. The full loop works on desktop and mobile 390: transcribe (lang field sent) -> chat (voice_mode true, language name) -> speak (selected voice, tts code) -> user and echo turns rendered. Empty transcription goes back to listening, tapping the orb while Echo speaks interrupts it, and pause/resume/change/end all work. Farewell leave deletes the session and history, and the empty room vent is sent.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/voice/transcribe (lang=hinglish)", "issue": "The Hinglish prompt alone does not keep Whisper in Roman script. A Hinglish mp3 'Main yahan hoon, yaar.' was transcribed as Devanagari 'माईन यहाँ हूँ यार?'. With lang=auto it came back as 'Mine Yahan Hoonyar!', which mishears 'Main'. Users who pick Hinglish will see their own words in Devanagari, or mangled. The reply is still Roman Hinglish. Possible fix: for hinglish, send language='en' together with the Roman Hinglish prompt (or transliterate afterwards), then check against real recordings."},
+      {"endpoint": "/api/voice/speak", "issue": "language_code is not passed to ElevenLabs convert() even though the lang is known. eleven_flash_v2_5 supports language_code, and passing it could help the accent for hi/ta when falling back to built-in voices."},
+      {"endpoint": "/api/voice/transcribe", "issue": "No upper size limit on the uploaded audio (only the <1500 bytes check)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/echo voice screen", "issues": ["Hint text 'tap the circle to interrupt' / 'pause to send, or tap the circle' (text-muted, 10px) has very low contrast on the black background"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter4_elevenlabs_whisper.py", "/app/test_reports/pytest/pytest_iter4.xml"],
+  "action_items": [
+    "Optional: make Hinglish STT return Roman script (e.g. language='en' + Hinglish prompt) and check with real Hinglish speech",
+    "Optional: pass language_code=lang to ElevenLabs TTS for better accent on the built-in voices",
+    "Optional: raise contrast of the voice-screen hint text"
+  ],
+  "critical_code_review_comments": [
+    "_el_native_blocked is kept per process, so each backend restart spends one extra 402 call (already graceful).",
+    "useUtteranceRecorder: if the mic never goes above the RMS threshold, a tap on the orb resolves null and silently restarts listening. Users in quiet rooms or with low-gain mics may feel the tap did nothing. Consider sending anyway when the tap is manual.",
+    "echo_chat runs the mood LLM call in parallel with the reply. That is fine, but it doubles LLM usage per turn."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter4_elevenlabs_whisper.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None; test sessions were deleted",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "SpeechRecognition is gone. To drive /echo, use page.add_init_script to override navigator.mediaDevices.getUserMedia with an OscillatorNode -> MediaStreamDestination stream (gain 0.6, so it registers as speech). After begin, click voice-orb to send right away, and page.route('**/api/voice/transcribe') to return fixed text. ElevenLabs logs: native hi voice JS6C6yu2x9Byh4i1a8lX gets 402 and falls back to EXAVITQu4vr4xnSDxMaL / nPczCjzI2devNBz1zQrb with 200. Keep TTS text short (free plan quota). The iteration 3 SpeechRecognition mock is obsolete."
+}

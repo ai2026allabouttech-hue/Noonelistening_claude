@@ -388,12 +388,14 @@ async def _elevenlabs_tts(text: str, voice: str, lang: Optional[str]) -> bytes:
     )
 
     async def run(voice_id: str) -> bytes:
+        extra = {"language_code": lang} if lang else {}
         chunks = _el_client.text_to_speech.convert(
             voice_id,
             text=text,
             model_id=ELEVENLABS_MODEL,
             output_format="mp3_44100_64",
             voice_settings=settings,
+            **extra,
         )
         return b"".join([c async for c in chunks])
 
@@ -566,6 +568,8 @@ async def voice_transcribe(audio: UploadFile = File(...), lang: str = Form("auto
     data = await audio.read()
     if len(data) < 1500:
         return {"text": ""}
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="that was too long, try shorter")
     from emergentintegrations.llm.openai import OpenAISpeechToText
 
     stt = OpenAISpeechToText(api_key=EMERGENT_LLM_KEY)
@@ -573,6 +577,8 @@ async def voice_transcribe(audio: UploadFile = File(...), lang: str = Form("auto
     buf.name = audio.filename or "speech.webm"
     kwargs = {"file": buf, "model": "whisper-1", "response_format": "json", "temperature": 0.0}
     if lang == "hinglish":
+        # "en" + Roman Hinglish prompt keeps Hindi words in Roman letters
+        kwargs["language"] = "en"
         kwargs["prompt"] = WHISPER_HINGLISH_PROMPT
     elif lang and lang != "auto":
         kwargs["language"] = lang
