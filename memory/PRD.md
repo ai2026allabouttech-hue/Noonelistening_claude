@@ -8,7 +8,11 @@ React (CRA/craco) frontend + FastAPI backend + local MongoDB. Echo chat via Clau
 - Added Emergent key support for Echo chat + mood
 - Fixed mood classifier crash on empty LLM reply
 - Testing: backend 27/27, frontend flows 100%
+## Done (iteration 2)
+- True Forgetting: DELETE /api/session/{id} wipes messages/vents/session; Farewell "leave the room" calls it + clears local identity
+- Voice on with user's Gemini key (woman=Sulafat, man=Achird); typed chat has "echo replies in" text/woman/man choice; talk screen keeps its own choice
+- Chat layout fixed height so voice row stays visible; audio race/URL leak fixed
+- Testing: backend 33/33, frontend 100%
 ## Backlog
-- P0: add user's GEMINI_API_KEY for voice
-- P1: "Leave the room" should clear identity/history (clearIdentity unused)
+- P1: auto-delete abandoned sessions (Mongo TTL index)
 - P2: raise contrast of 10px muted labels; validate session_id; run mood + reply in parallel

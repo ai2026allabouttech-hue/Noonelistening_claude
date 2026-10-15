@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 2: tested True Forgetting (DELETE /api/session + Farewell leave flow) and Gemini TTS chat voice choice (off/female/male) plus regressions. Backend 33/33 pytest pass (incl. 6 new). Frontend: all requested flows pass end-to-end with network verification.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Echo chat (/echo)", "issues": ["Root uses min-h-screen so with a long conversation the whole page scrolls and the top bar + 'echo replies in' voice choice row scroll out of view (observed after 2 replies at 1920x1080). Consider h-screen with only chat-messages scrolling."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter2_forget_voice.py", "/app/backend/tests/test_noonelistening_api.py", "/app/backend/tests/test_noonelistening_extra.py", "/app/test_reports/pytest/pytest_results_iter2.xml"],
+  "action_items": [
+    "Optional: make chat layout h-screen so voice choice/top bar stay visible",
+    "Optional: in speakReply distinguish audio.play() NotAllowedError (autoplay) from TTS failure; currently both show 'Voice is resting' notice",
+    "Optional: revoke previous object URL (URL.revokeObjectURL) before assigning a new audio src"
+  ],
+  "critical_code_review_comments": [
+    "AIChatScreen.speakReply: any play() rejection (autoplay policy) shows misleading 'Voice is resting' notice even when TTS returned 200",
+    "AIChatScreen.speakReply: object URLs never revoked -> small memory leak across many replies",
+    "AIChatScreen.speakReply: race - a slower earlier TTS response can start playing after a newer reply's audio",
+    "Sessions abandoned without pressing 'leave the room' are kept forever; consider a Mongo TTL index on messages/vents/sessions to match the 'room forgets' promise",
+    "nol_chat_speak_v1 / nol_voice_pref_v1 survive 'leave the room' (preferences only, acceptable)"
+  ],
+  "updated_files": ["/app/backend/tests/test_iter2_forget_voice.py (new)", "/app/backend/tests/test_noonelistening_extra.py (obsolete 'voice unconfigured -> 500' test replaced by 'configured -> 200 wav')"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None; test sessions created via API (TEST_ prefixed messages deleted via DELETE /api/session)",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Verified: DELETE /api/session/{id} returns counts and history becomes []; idempotent for unknown id. /api/voice/speak female+male -> 200 audio/wav RIFF; invalid voice 422; empty text 400. UI: splash shows 'enter the room' after leave; new session code generated; Echo shows empty state. chat-speak-off default; off -> 0 speak requests; female/male -> exactly one POST /api/voice/speak with matching voice param, status 200, no chat-voice-notice (headless autoplay worked). Selection persists after reload. Voice screen picks set nol_voice_pref_v1. home-voice-btn reads 'talk to echo out loud'. Empty room vent + exit modal stay/leave OK."
+}

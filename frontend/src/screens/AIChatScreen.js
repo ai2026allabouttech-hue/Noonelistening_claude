@@ -29,6 +29,7 @@ export default function AIChatScreen() {
   );
   const [voiceNotice, setVoiceNotice] = useState(null);
   const audioRef = useRef(null);
+  const speakTicket = useRef(0);
   const endRef = useRef(null);
   const taRef = useRef(null);
 
@@ -43,16 +44,23 @@ export default function AIChatScreen() {
   const speakReply = async (text, mood) => {
     if (speakAs === "off") return;
     setVoiceNotice(null);
+    const ticket = ++speakTicket.current;
+    let blob;
     try {
-      const blob = await fetchSpeech(text, speakAs, mood);
-      if (!audioRef.current) audioRef.current = new Audio();
-      const a = audioRef.current;
-      a.pause();
-      a.src = URL.createObjectURL(blob);
-      await a.play();
+      blob = await fetchSpeech(text, speakAs, mood);
     } catch {
       setVoiceNotice("Voice is resting for a moment. Read this one instead.");
+      return;
     }
+    if (ticket !== speakTicket.current) return;
+    if (!audioRef.current) audioRef.current = new Audio();
+    const a = audioRef.current;
+    a.pause();
+    if (a.src.startsWith("blob:")) URL.revokeObjectURL(a.src);
+    a.src = URL.createObjectURL(blob);
+    a.play().catch(() =>
+      setVoiceNotice("Your browser blocked sound. Tap a voice button to allow it.")
+    );
   };
 
   useEffect(() => () => audioRef.current?.pause(), []);
@@ -127,7 +135,7 @@ export default function AIChatScreen() {
   };
 
   return (
-    <div className="grain relative min-h-screen flex flex-col overflow-hidden">
+    <div className="grain relative h-[100dvh] flex flex-col overflow-hidden">
       <div
         aria-hidden
         className="absolute inset-0 opacity-[0.07] pointer-events-none"
@@ -192,7 +200,7 @@ export default function AIChatScreen() {
       {/* Messages */}
       <div
         data-testid="chat-messages"
-        className="relative z-10 flex-1 overflow-y-auto scroll-quiet px-6 md:px-12 py-10"
+        className="relative z-10 flex-1 min-h-0 overflow-y-auto scroll-quiet px-6 md:px-12 py-10"
       >
         <div className="max-w-2xl mx-auto flex flex-col gap-12">
           {messages.length === 0 && (

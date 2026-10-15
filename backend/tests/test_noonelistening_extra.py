@@ -49,8 +49,8 @@ def test_vent_invalid_kind_422():
     assert r.status_code == 422
 
 
-def test_voice_speak_unconfigured_returns_500():
-    # Expected: GEMINI_API_KEY not provided
-    r = requests.post(f"{API}/voice/speak", json={"text": "hi", "voice": "female"})
-    assert r.status_code == 500
-    assert "voice key not configured" in r.json()["detail"]
+def test_voice_speak_configured_returns_wav():
+    # GEMINI_API_KEY is now configured (iteration 2) -> real audio
+    r = requests.post(f"{API}/voice/speak", json={"text": "hi", "voice": "female"}, timeout=90)
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("audio/wav")
