@@ -3,13 +3,19 @@ import { useNavigate } from "react-router-dom";
 import ExitModal from "@/components/ExitModal";
 import useExitGuard from "@/hooks/useExitGuard";
 import { loadIdentity } from "@/App";
-import { sendEchoMessage, fetchSpeech, fetchHistory } from "@/services/echoService";
-import { LANGUAGES, LANG_KEY, defaultLanguage } from "@/lib/languages";
+import {
+  sendEchoMessage,
+  fetchSpeech,
+  fetchHistory,
+  transcribeSpeech,
+} from "@/services/echoService";
+import { LANGUAGES, LANG_KEY, defaultLanguage, findLang } from "@/lib/languages";
+import useUtteranceRecorder from "@/hooks/useUtteranceRecorder";
 
-// The browser's built-in "ears" (speech-to-text). Chrome, Edge, Safari.
+// Mic recording (speech is understood by Whisper on the server).
 const SpeechRec =
-  typeof window !== "undefined"
-    ? window.SpeechRecognition || window.webkitSpeechRecognition
+  typeof window !== "undefined" && navigator.mediaDevices && window.MediaRecorder
+    ? true
     : null;
 
 const VOICE_KEY = "nol_voice_pref_v1";
@@ -52,10 +58,10 @@ function Transcript({ turns, heard, phase }) {
             </p>
           )
         )}
-        {phase === "listening" && heard && (
+        {heard && (
           <p
             data-testid="voice-heard"
-            className="self-end max-w-[80%] font-mono text-[13px] tracking-wide text-muted text-right leading-relaxed"
+            className="self-end max-w-[80%] font-mono text-[11px] tracking-widest2 uppercase text-muted text-right"
           >
             {heard}
           </p>
@@ -115,7 +121,7 @@ function Chooser({ voice, pickVoice, lang, pickLang, begin }) {
       >
         {LANGUAGES.map((l) => (
           <option key={l.code} value={l.code} className="bg-black">
-            {l.name}
+            {l.label || l.name}
           </option>
         ))}
       </select>
@@ -151,8 +157,8 @@ export default function VoiceChatScreen() {
   const voiceRef = useRef(voice);
   const langRef = useRef(lang);
   const activeRef = useRef(false);
-  const recogRef = useRef(null);
   const audioRef = useRef(null);
+  const recorder = useUtteranceRecorder();
 
   useEffect(() => {
     if (!identity?.sessionId) return;
@@ -180,18 +186,7 @@ export default function VoiceChatScreen() {
   };
 
   function stopRecognition() {
-    const r = recogRef.current;
-    recogRef.current = null;
-    if (r) {
-      r.onend = null;
-      r.onerror = null;
-      r.onresult = null;
-      try {
-        r.abort();
-      } catch {
-        /* noop */
-      }
-    }
+    recorder.cancel();
   }
 
   function stopAudio() {
@@ -203,50 +198,32 @@ export default function VoiceChatScreen() {
   }
 
   // --- 1. LISTEN ------------------------------------------------------------
-  function startListening() {
-    if (!activeRef.current || !SpeechRec) return;
-    stopRecognition();
-
-    const rec = new SpeechRec();
-    rec.lang = langRef.current;
-    rec.continuous = false;
-    rec.interimResults = true;
-
-    let finalText = "";
-
-    rec.onresult = (e) => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const piece = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalText += piece + " ";
-        else interim += piece;
-      }
-      setHeard((finalText + interim).trim());
-    };
-
-    rec.onerror = (e) => {
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        activeRef.current = false;
-        setNotice("Microphone is blocked. Allow it in your browser, then tap resume.");
-        changePhase("paused");
-      }
-    };
-
-    rec.onend = () => {
-      if (!activeRef.current || phaseRef.current !== "listening") return;
-      const text = finalText.trim();
-      if (text) handleUserSpeech(text);
-      else setTimeout(startListening, 300);
-    };
-
-    recogRef.current = rec;
-    setHeard("");
+  async function startListening() {
+    if (!activeRef.current) return;
     changePhase("listening");
+    setHeard("");
+    let blob;
     try {
-      rec.start();
+      blob = await recorder.listenOnce({ onSpeechStart: () => setHeard("i hear you…") });
     } catch {
-      /* already started */
+      activeRef.current = false;
+      setNotice("Microphone is blocked. Allow it in your browser, then tap resume.");
+      changePhase("paused");
+      return;
     }
+    if (!activeRef.current || phaseRef.current !== "listening") return;
+    if (!blob) return startListening();
+    changePhase("hearing");
+    setHeard("understanding…");
+    let text = "";
+    try {
+      text = await transcribeSpeech(blob, findLang(langRef.current).stt);
+    } catch {
+      setNotice("I couldn't catch that. Say it again?");
+    }
+    if (!activeRef.current) return;
+    if (!text.trim()) return startListening();
+    handleUserSpeech(text.trim());
   }
 
   // --- 2. THINK -------------------------------------------------------------
@@ -256,12 +233,12 @@ export default function VoiceChatScreen() {
     setHeard("");
     setNotice("");
     setTurns((t) => [...t, { id: `u-${Date.now()}`, role: "user", text }]);
-    const langName = LANGUAGES.find((l) => l.code === langRef.current)?.name;
+    const L = findLang(langRef.current);
     try {
-      const { reply, mood } = await sendEchoMessage(identity.sessionId, text, true, langName);
+      const { reply, mood } = await sendEchoMessage(identity.sessionId, text, true, L.name);
       if (!activeRef.current) return;
       setTurns((t) => [...t, { id: `e-${Date.now()}`, role: "echo", text: reply }]);
-      await speak(reply, mood);
+      await speak(reply, mood, L.tts);
     } catch {
       setNotice("Echo went quiet for a moment. I'm still here, say it again.");
     }
@@ -269,10 +246,10 @@ export default function VoiceChatScreen() {
   }
 
   // --- 3. SPEAK -------------------------------------------------------------
-  async function speak(text, mood) {
+  async function speak(text, mood, lang) {
     changePhase("speaking");
     try {
-      const blob = await fetchSpeech(text, voiceRef.current, mood);
+      const blob = await fetchSpeech(text, voiceRef.current, mood, lang);
       if (!activeRef.current) return;
       const url = URL.createObjectURL(blob);
       const audio = audioRef.current;
@@ -309,25 +286,28 @@ export default function VoiceChatScreen() {
 
   const interrupt = () => {
     if (phaseRef.current === "speaking") stopAudio();
+    else if (phaseRef.current === "listening") recorder.stopNow();
   };
 
   useEffect(
     () => () => {
       activeRef.current = false;
-      stopRecognition();
+      recorder.release();
       stopAudio();
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 
   const statusLabel = {
     listening: "listening",
+    hearing: "listening",
     thinking: "echo is with you",
     speaking: "echo is speaking",
     paused: "paused",
   }[phase];
 
-  const langName = LANGUAGES.find((l) => l.code === lang)?.name;
+  const langName = findLang(lang).label || findLang(lang).name;
 
   return (
     <div className="grain relative h-[100dvh] flex flex-col overflow-hidden">
@@ -362,7 +342,7 @@ export default function VoiceChatScreen() {
       {!SpeechRec && (
         <div className="relative z-10 flex-1 flex items-center justify-center px-8 text-center">
           <p className="font-serif italic font-light text-2xl text-secondary max-w-md leading-snug">
-            This browser can't listen. Please open the app in Chrome, Edge or Safari.
+            This browser can't use the microphone. Please open the app in Chrome, Edge or Safari.
           </p>
         </div>
       )}
@@ -410,6 +390,9 @@ export default function VoiceChatScreen() {
             )}
             {phase === "speaking" && (
               <p className={`mt-3 ${label} text-muted`}>tap the circle to interrupt</p>
+            )}
+            {phase === "listening" && (
+              <p className={`mt-3 ${label} text-muted`}>pause to send, or tap the circle</p>
             )}
 
             <div className="mt-5 flex items-center justify-center gap-8">

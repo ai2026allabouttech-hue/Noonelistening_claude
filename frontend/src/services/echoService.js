@@ -42,13 +42,21 @@ export async function fetchHistory(sessionId) {
   return data.messages || [];
 }
 
-// Asks the backend to turn Echo's reply into a human voice.
-// voice: "female" | "male". Returns an audio Blob (WAV).
-export async function fetchSpeech(text, voice, mood) {
+// voice: "female" | "male", lang: ISO code for native accent. Returns an MP3 Blob.
+export async function fetchSpeech(text, voice, mood, lang = null) {
   const { data } = await axios.post(
     `${API}/voice/speak`,
-    { text, voice, mood },
+    { text, voice, mood, lang },
     { responseType: "blob", timeout: 70000 }
   );
   return data;
+}
+
+export async function transcribeSpeech(blob, lang) {
+  const form = new FormData();
+  const ext = blob.type.includes("mp4") ? "m4a" : "webm";
+  form.append("audio", blob, `speech.${ext}`);
+  form.append("lang", lang || "auto");
+  const { data } = await axios.post(`${API}/voice/transcribe`, form, { timeout: 60000 });
+  return data.text || "";
 }

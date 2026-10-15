@@ -21,7 +21,7 @@ from typing import List, Literal, Optional
 
 import requests
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, ConfigDict, Field
@@ -87,6 +87,18 @@ VOICE_NAMES = {"female": "Sulafat", "male": "Achird"}
 OPENAI_VOICES = {"female": "coral", "male": "onyx"}
 OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "tts-1")
 
+# ElevenLabs (primary voice): native-sounding, multilingual
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+ELEVENLABS_MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_flash_v2_5")
+# Built-in voices (work on every plan): soft & warm woman, warm comforting man
+EL_DEFAULT_VOICES = {"female": "EXAVITQu4vr4xnSDxMaL", "male": "nPczCjzI2devNBz1zQrb"}
+# Native voices per language (Voice Library, need a paid ElevenLabs plan).
+# Add more via env, e.g. EL_VOICE_TA_FEMALE=<voice_id>
+EL_NATIVE_VOICES = {
+    ("hi", "female"): "JS6C6yu2x9Byh4i1a8lX",
+    ("hi", "male"): "3AMU7jXQuQa3oRvRqUmb",
+}
+
 # How Echo should *sound*, based on the user's mood.
 MOOD_DELIVERY = {
     "sad": "very soft and tender, slow, with quiet warmth",
@@ -132,7 +144,7 @@ class ChatIn(BaseModel):
     session_id: str
     message: str
     voice_mode: bool = False  # True when the user is talking out loud
-    language: Optional[str] = None  # e.g. "Hindi"; Echo replies in this language
+    language: Optional[str] = None  # e.g. "Hindi", "Hinglish", "auto"
 
 
 class ChatOut(BaseModel):
@@ -144,6 +156,7 @@ class SpeakIn(BaseModel):
     text: str
     voice: Literal["female", "male"] = "female"
     mood: Optional[str] = "neutral"
+    lang: Optional[str] = None  # ISO 639-1, e.g. "hi"; None = auto
 
 
 class MoodIn(BaseModel):
@@ -252,6 +265,25 @@ def _build_messages(history: List[dict], user_text: str) -> List[dict]:
     return msgs
 
 
+def _language_instruction(language: Optional[str]) -> str:
+    if not language or language == "auto":
+        return (
+            "\n\nReply in exactly the same language, mix of languages and script "
+            "the person just used. If they mix Hindi and English (Hinglish), "
+            "reply in natural Hinglish written in Roman letters."
+        )
+    if language == "Hinglish":
+        return (
+            "\n\nThe person speaks Hinglish. Reply in natural, casual Hinglish "
+            "(Hindi and English mixed the way friends talk in India), written in "
+            "Roman letters, never in Devanagari."
+        )
+    return (
+        f"\n\nThe person speaks {language}. Always reply in natural everyday "
+        f"{language}. If they mix in English words, that is fine, keep the same feel."
+    )
+
+
 async def _classify_mood(text: str) -> str:
     """Lightweight one-shot mood classification with Claude."""
     if not text or not text.strip():
@@ -333,6 +365,49 @@ def _synthesize_sync(text: str, voice: str, mood: str) -> bytes:
     raise HTTPException(status_code=502, detail="voice returned no audio")
 
 
+_el_client = None
+_el_native_blocked = False  # set when the plan can't use library voices
+
+
+def _native_voice(lang: Optional[str], voice: str) -> Optional[str]:
+    if not lang:
+        return None
+    env = os.environ.get(f"EL_VOICE_{lang.upper()}_{voice.upper()}")
+    return env or EL_NATIVE_VOICES.get((lang, voice))
+
+
+async def _elevenlabs_tts(text: str, voice: str, lang: Optional[str]) -> bytes:
+    global _el_client, _el_native_blocked
+    from elevenlabs import VoiceSettings
+    from elevenlabs.client import AsyncElevenLabs
+
+    if _el_client is None:
+        _el_client = AsyncElevenLabs(api_key=ELEVENLABS_API_KEY)
+    settings = VoiceSettings(
+        stability=0.6, similarity_boost=0.8, style=0.0, use_speaker_boost=True, speed=0.95
+    )
+
+    async def run(voice_id: str) -> bytes:
+        chunks = _el_client.text_to_speech.convert(
+            voice_id,
+            text=text,
+            model_id=ELEVENLABS_MODEL,
+            output_format="mp3_44100_64",
+            voice_settings=settings,
+        )
+        return b"".join([c async for c in chunks])
+
+    native = None if _el_native_blocked else _native_voice(lang, voice)
+    if native:
+        try:
+            return await run(native)
+        except Exception as exc:  # noqa: BLE001
+            if "402" in str(exc) or "payment" in str(exc).lower():
+                _el_native_blocked = True
+            logger.info("native voice unavailable, using built-in: %s", str(exc)[:120])
+    return await run(EL_DEFAULT_VOICES[voice])
+
+
 # --- Routes -----------------------------------------------------------------
 @api_router.get("/")
 async def root():
@@ -389,42 +464,34 @@ async def echo_chat(payload: ChatIn):
         raise HTTPException(status_code=400, detail="Empty message")
 
     now = datetime.now(timezone.utc)
-    user_mood = await _classify_mood(user_text)
-
-    # Persist user message
-    user_msg = {
-        "id": str(uuid.uuid4()),
-        "session_id": session_id,
-        "role": "user",
-        "text": user_text,
-        "mood": user_mood,
-        "created_at": now.isoformat(),
-    }
-    await db.messages.insert_one(dict(user_msg))
-
-    # Load earlier turns from the database so Echo remembers the conversation
     history = await _load_history(session_id, limit=40)
-    # Drop the just-saved message; it is added fresh below.
-    history = [m for m in history if m["id"] != user_msg["id"]]
-
+    system = (
+        ECHO_SYSTEM_PROMPT
+        + (VOICE_ADDENDUM if payload.voice_mode else "")
+        + _language_instruction(payload.language)
+    )
     try:
-        response_text = await _ask_llm(
-            ECHO_SYSTEM_PROMPT
-            + (VOICE_ADDENDUM if payload.voice_mode else "")
-            + (
-                f"\n\nThe person speaks {payload.language}. Always reply only in "
-                f"{payload.language}, in natural everyday {payload.language}."
-                if payload.language
-                else ""
-            ),
-            _build_messages(history, user_text),
-            max_tokens=600,
+        # mood and reply at the same time = faster
+        user_mood, response_text = await asyncio.gather(
+            _classify_mood(user_text),
+            _ask_llm(system, _build_messages(history, user_text), max_tokens=600),
         )
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         logger.exception("echo chat failed")
         raise HTTPException(status_code=502, detail="echo unavailable")
+
+    await db.messages.insert_one(
+        {
+            "id": str(uuid.uuid4()),
+            "session_id": session_id,
+            "role": "user",
+            "text": user_text,
+            "mood": user_mood,
+            "created_at": now.isoformat(),
+        }
+    )
 
     reply = (response_text or "").strip()
 
@@ -448,6 +515,14 @@ async def voice_speak(payload: SpeakIn):
     if not text:
         raise HTTPException(status_code=400, detail="Empty text")
     mood = payload.mood if payload.mood in VALID_MOODS else "neutral"
+    if ELEVENLABS_API_KEY:
+        try:
+            return Response(
+                content=await _elevenlabs_tts(text, payload.voice, payload.lang),
+                media_type="audio/mpeg",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("elevenlabs tts failed, trying openai: %s", exc)
     if EMERGENT_LLM_KEY:
         try:
             from emergentintegrations.llm.openai import OpenAITextToSpeech
@@ -476,6 +551,37 @@ async def forget_session(session_id: str):
     v = await db.vents.delete_many({"session_id": session_id})
     await db.sessions.delete_many({"session_id": session_id})
     return {"ok": True, "messages_deleted": m.deleted_count, "vents_deleted": v.deleted_count}
+
+
+WHISPER_HINGLISH_PROMPT = (
+    "Haan yaar, aaj ka din bahut tough tha. I just feel so tired, pata nahi kya karun."
+)
+
+
+@api_router.post("/voice/transcribe")
+async def voice_transcribe(audio: UploadFile = File(...), lang: str = Form("auto")):
+    """Speech to text with Whisper. lang: ISO code, 'auto' or 'hinglish'."""
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="listening key not configured")
+    data = await audio.read()
+    if len(data) < 1500:
+        return {"text": ""}
+    from emergentintegrations.llm.openai import OpenAISpeechToText
+
+    stt = OpenAISpeechToText(api_key=EMERGENT_LLM_KEY)
+    buf = io.BytesIO(data)
+    buf.name = audio.filename or "speech.webm"
+    kwargs = {"file": buf, "model": "whisper-1", "response_format": "json", "temperature": 0.0}
+    if lang == "hinglish":
+        kwargs["prompt"] = WHISPER_HINGLISH_PROMPT
+    elif lang and lang != "auto":
+        kwargs["language"] = lang
+    try:
+        resp = await stt.transcribe(**kwargs)
+    except Exception:  # noqa: BLE001
+        logger.exception("transcribe failed")
+        raise HTTPException(status_code=502, detail="couldn't hear that")
+    return {"text": (getattr(resp, "text", "") or "").strip()}
 
 
 @api_router.get("/echo/history/{session_id}")
