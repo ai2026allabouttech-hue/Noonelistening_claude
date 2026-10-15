@@ -41,6 +41,7 @@ db = client[os.environ["DB_NAME"]]
 # GEMINI_API_KEY alone to use Gemini. If both are set, Claude is used.
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5-5")
+EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 GEMINI_CHAT_MODEL = os.environ.get("GEMINI_CHAT_MODEL", "gemini-flash-latest")
 
 ECHO_SYSTEM_PROMPT = """You are Echo — a quiet, non-judgmental listener inside an app called "NoOneListening".
@@ -214,6 +215,16 @@ async def _ask_llm(system: str, messages: List[dict], max_tokens: int = 600) -> 
             messages=messages,
         )
         return "".join(b.text for b in resp.content if b.type == "text")
+    if EMERGENT_LLM_KEY:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=str(uuid.uuid4()),
+            system_message=system,
+            initial_messages=[{"role": "system", "content": system}] + messages[:-1],
+        ).with_model("anthropic", ANTHROPIC_MODEL).with_params(max_tokens=max_tokens)
+        return await chat.send_message(UserMessage(text=messages[-1]["content"]))
     if GEMINI_API_KEY:
         return await asyncio.to_thread(_gemini_chat_sync, system, messages, max_tokens)
     raise HTTPException(status_code=500, detail="No AI key configured")
@@ -241,15 +252,16 @@ async def _classify_mood(text: str) -> str:
     """Lightweight one-shot mood classification with Claude."""
     if not text or not text.strip():
         return "neutral"
-    if not (ANTHROPIC_API_KEY or GEMINI_API_KEY):
+    if not (ANTHROPIC_API_KEY or EMERGENT_LLM_KEY or GEMINI_API_KEY):
         return "neutral"
     try:
         response = await _ask_llm(
             MOOD_SYSTEM_PROMPT,
             [{"role": "user", "content": text[:1200]}],
-            max_tokens=8,
+            max_tokens=20,
         )
-        mood = (response or "").strip().lower().split()[0].strip(".,'\"")
+        words = (response or "").strip().lower().split()
+        mood = words[0].strip(".,'\"") if words else "neutral"
         return mood if mood in VALID_MOODS else "neutral"
     except Exception as exc:  # noqa: BLE001
         logger.warning("mood classification failed: %s", exc)
@@ -364,7 +376,7 @@ async def classify_mood(payload: MoodIn):
 
 @api_router.post("/echo/chat", response_model=ChatOut)
 async def echo_chat(payload: ChatIn):
-    if not (ANTHROPIC_API_KEY or GEMINI_API_KEY):
+    if not (ANTHROPIC_API_KEY or EMERGENT_LLM_KEY or GEMINI_API_KEY):
         raise HTTPException(status_code=500, detail="AI key not configured")
 
     session_id = payload.session_id
