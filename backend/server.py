@@ -13,6 +13,8 @@ import logging
 import os
 import random
 import string
+
+import crisis
 import time
 import uuid
 import wave
@@ -58,7 +60,7 @@ Rules:
 - Ask at most one gentle question per response, only if it feels right.
 - Never use exclamation marks. Never use emoji. Never be performatively cheerful.
 - You are allowed to sit in silence with them. A reply like "I hear you. I'm here." is valid.
-- If they mention self-harm or suicide, gently and without alarm, share: "If you are in danger right now, please call a local crisis line — you deserve a real human voice." Then keep listening.
+- If they mention self-harm or suicide, drop the casual tone, say plainly that you care, and point them to a real helpline. Then keep listening.
 
 You are not a therapist. You are the friend who picks up at 3am and just listens."""
 
@@ -177,11 +179,14 @@ class VentIn(BaseModel):
     kind: Literal["text", "audio"]
     text: Optional[str] = None
     duration_ms: Optional[int] = None
+    region: Optional[str] = None  # ISO country, e.g. "IN"
 
 
 class VentOut(BaseModel):
     id: str
     ok: bool = True
+    crisis: bool = False
+    helplines: List[dict] = []
 
 
 class ChatIn(BaseModel):
@@ -190,11 +195,14 @@ class ChatIn(BaseModel):
     voice_mode: bool = False  # True when the user is talking out loud
     voice: Optional[Literal["female", "male"]] = None  # Echo's voice gender
     language: Optional[str] = None  # e.g. "Hindi", "Hinglish", "auto"
+    region: Optional[str] = None  # ISO country for helplines, e.g. "IN"
 
 
 class ChatOut(BaseModel):
     reply: str
     mood: str
+    crisis: bool = False
+    helplines: List[dict] = []
 
 
 class SpeakIn(BaseModel):
@@ -327,6 +335,21 @@ def _language_instruction(language: Optional[str]) -> str:
         f"\n\nThe person speaks {language}. Always reply in natural everyday "
         f"{language}. If they mix in English words, that is fine, keep the same feel."
     )
+
+
+async def _crisis_check(text: str, context: str = "") -> bool:
+    """Instant keyword scan first; otherwise a tiny AI safety check."""
+    if crisis.keyword_hit(text):
+        return True
+    try:
+        msg = (f"Recent context:\n{context}\n\n" if context else "") + f"Latest message:\n{text}"
+        out = await _ask_llm(
+            crisis.CRISIS_CHECK_PROMPT, [{"role": "user", "content": msg}], max_tokens=5
+        )
+        return (out or "").strip().lower().startswith("yes")
+    except Exception:  # noqa: BLE001
+        logger.exception("crisis check failed")
+        return False
 
 
 def _gender_instruction(voice: Optional[str]) -> str:
@@ -534,7 +557,17 @@ async def record_vent(payload: VentIn):
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
     )
-    return VentOut(id=vent_id)
+    is_crisis = bool(payload.text) and await _crisis_check(payload.text)
+    if is_crisis:
+        await db.sessions.update_one(
+            {"session_id": payload.session_id},
+            {"$set": {"crisis": True, "crisis_at": datetime.now(timezone.utc).isoformat()}},
+        )
+    return VentOut(
+        id=vent_id,
+        crisis=is_crisis,
+        helplines=crisis.helplines_for(payload.region) if is_crisis else [],
+    )
 
 
 @api_router.post("/echo/mood", response_model=MoodOut)
@@ -555,23 +588,43 @@ async def echo_chat(payload: ChatIn):
 
     now = datetime.now(timezone.utc)
     history = await _load_history(session_id, limit=40)
-    system = (
+    session_doc = await db.sessions.find_one({"session_id": session_id}, {"_id": 0, "crisis": 1})
+    # Once someone has been in crisis this session, stay in safety mode.
+    known_crisis = bool(session_doc and session_doc.get("crisis")) or crisis.keyword_hit(user_text)
+    base_system = (
         ECHO_SYSTEM_PROMPT
         + (VOICE_ADDENDUM if payload.voice_mode else "")
         + _language_instruction(payload.language)
         + _gender_instruction(payload.voice)
     )
+    safety = crisis.crisis_addendum(payload.region)
+    system = base_system + (safety if known_crisis else "")
+    messages = _build_messages(history, user_text)
+    context = "\n".join(
+        m.get("text", "") for m in history[-6:] if m.get("role") == "user"
+    )
     try:
-        # mood and reply at the same time = faster
-        user_mood, response_text = await asyncio.gather(
+        # mood, safety check and reply at the same time = faster
+        user_mood, ai_crisis, response_text = await asyncio.gather(
             _classify_mood(user_text),
-            _ask_llm(system, _build_messages(history, user_text), max_tokens=600),
+            _crisis_check(user_text, context) if not known_crisis else asyncio.sleep(0, True),
+            _ask_llm(system, messages, max_tokens=600),
         )
+        if ai_crisis and not known_crisis:
+            # The AI spotted indirect crisis language: redo the reply in safety mode.
+            response_text = await _ask_llm(base_system + safety, messages, max_tokens=600)
     except HTTPException:
         raise
     except Exception:  # noqa: BLE001
         logger.exception("echo chat failed")
         raise HTTPException(status_code=502, detail="echo unavailable")
+
+    in_crisis = known_crisis or bool(ai_crisis)
+    if in_crisis and not (session_doc and session_doc.get("crisis")):
+        await db.sessions.update_one(
+            {"session_id": session_id},
+            {"$set": {"crisis": True, "crisis_at": now.isoformat()}},
+        )
 
     await db.messages.insert_one(
         {
@@ -596,7 +649,12 @@ async def echo_chat(payload: ChatIn):
     }
     await db.messages.insert_one(dict(echo_msg))
 
-    return ChatOut(reply=reply, mood=user_mood)
+    return ChatOut(
+        reply=reply,
+        mood=user_mood,
+        crisis=in_crisis,
+        helplines=crisis.helplines_for(payload.region) if in_crisis else [],
+    )
 
 
 @api_router.post("/voice/speak")
